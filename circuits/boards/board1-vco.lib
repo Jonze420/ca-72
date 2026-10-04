@@ -1,0 +1,129 @@
+* Minimoog Model D oscillator board No. 1, "old" board (serial numbers below 10175),
+* one oscillator: control summer, exponential converter, sawtooth core, wave shapers.
+*
+* Source drawing: Moog Minimoog Service Manual, Figure 9-3 "Oscillator printed circuit
+* board No. 1 schematic diagram (serial numbers below 10175)", 300 dpi scan
+* fantasyjackpalance.com 903-osc-print-schem-below.gif (sha256 949a0552...). Reference
+* designators are oscillator 1's. Values are the drawing's, checked against Table 7-5
+* (old oscillator board parts list) and against oscillators 2 and 3 of the same drawing;
+* docs/circuit/board1.md records each value's readings and the differences from the
+* 1972 drawing 08-001.
+*
+* Ground is node 0. Rails and references are ports so a board-level netlist can supply
+* them from its regulators or from ideal sources.
+*
+* Ports:
+*   sum    IC1 pin 2, the summing junction (the input resistors are outside: board level)
+*   pos    IC1 pin 3, held at the -5 V line by R10 1K (oscillator 2's FREQUENCY network
+*          joins it there: R94 is its R10)
+*   trim   the far end of the frequency trimmer chain R11/R37 from -10 V: the summing
+*          junction for oscillators 1 and 2, oscillator 3's switched input node (16A)
+*   ramp   the timing capacitor C1 (0 V down to about -3.9 V)
+*   buf    the ramp buffer's output, Q3 collector (+3.9 V down to about -4 V)
+*   saw    sawtooth output, pin 9B (R34/R33 divider)
+*   tri    triangle output, pin 21B
+*   rect   rectangular output, pin 20B
+*   width  rectangular width control, pin 22B
+*   vp vn  +10 V and -10 V rails
+*   m5     the -5 V reference line (IC9/Q38)
+*   m4     the "-4V" line (R166/R174 divider of -10 V, C14)
+*
+* Parameters (trimmers):
+*   r11  R11 "1K WW" frequency trimmer, wired as a rheostat: 0..1000 ohm
+*   a8   R8 "100 WW" scale trimmer, wiper position from its R19 end: 0..1
+*   tc20 temperature coefficient of R20 "1K, +-3%, 1 W, temperature compensating" per C
+*        (value not given in the manual; docs/circuit/components.md R20)
+*   cint C1, the timing capacitor ("0.01uf polystyrene +-2%")
+.subckt mm_vco sum pos trim ramp buf saw tri rect width vp vn m5 m4
++ params: r11=500 a8=0.5 tc20=3.5e-3 cint=0.01u
+
+* --- control summer IC1 (741, supplied from GND and -10 V) ----------------------------
+xic1  pos sum 0 vn ic1o ua741       ; IC1: + = pin 3, - = pin 2 (sum), V+ = GND, V- = -10 V
+r10   pos m5 1k                     ; R10 1K: pin 3 to the -5 V line
+r20   ic1o sum 1k tc1={tc20}         ; R20 1K T.C. feedback
+r11   trim n11 {max(r11,1e-3)}      ; R11 1K WW rheostat (frequency)
+r37   n11 vn 11.8k                  ; R37 11.8K 1%
+r42   sub sum 160k                  ; R42 160K: tail emitter to the summing bus (bulk-R comp.)
+
+* --- divider to the reference transistor's base ------------------------------------------
+r9    ic1o n9 33                    ; R9 33
+r8a   n9 bref {max(100*(1-a8),1e-3)} ; R8 100 WW, upper part
+r8b   bref n19 {max(100*a8,1e-3)}   ; R8 100 WW, lower part (wiper = bref)
+r19   n19 m5 1k                     ; R19 1K
+c2    bexp bref 100p                ; C2 100pF between the two bases
+r7    bexp m5 100                   ; R7 100: expo transistor's base to -5 V
+
+* --- exponential converter: IC2 (3046) Q1 reference, Q2 exponential, Q5 tail -----------
+qref  cref bref e2 sub CA3046_NPN   ; IC2 pins 1 (C), 2 (B), 3 (E)
+qexp  cexp bexp e2 sub CA3046_NPN   ; IC2 pins 5 (C), 4 (B), 3 (E)
+vexp  ramp cexp 0                   ; probe (not on the board): the timing current
+qtail e2 btail sub sub CA3046_NPN   ; IC2 pins 14 (C), 12 (B), 13 (E = substrate)
+r79   sub vn 1k                     ; R79 1K
+r50   0 cref 39k                    ; R50 39K: reference current = 4 V / 39K
+xic3  cref m4 vp vn ic3o ua741      ; IC3: + = pin 3 (ref collector), - = pin 2 (-4 V line)
+r69   ic3o btail 15k                ; R69 15K (6.8K on the 1972 drawing)
+r78   btail vn 2k                   ; R78 2K  } "resistance capacitance network"
+r78s  btail n78 220                 ; 220 ohm } (Table 7-5), absent on the 1972 drawing
+c78   n78 vn 0.01u                  ; .01    }
+
+* --- timing capacitor and reset ---------------------------------------------------------
+c1    0 ramp {cint}                 ; C1 .01 polystyrene
+q10   ramp rst 0 Q2N4402            ; Q10 2N4402: resets C1 to 0 V
+
+* --- ramp buffer: discrete amplifier, gain about 2, offset about +3.9 V ----------------
+j7a   d7a ramp s7 JE402             ; Q7 E402, gate 1: the ramp (non-inverting input)
+j7b   d7b fb s7 JE402               ; Q7 E402, gate 2: the feedback (inverting input)
+r46   vp d7a 5.6k                   ; R46 5600
+r5    vp d7b 5.6k                   ; R5 5600
+r47   s7 c4 100                     ; R47 100
+q4    c4 b4 e4 Q2N3392              ; Q4 2N3392: tail current source
+r49   m4 b4 1000                    ; R49 1000 from the -4 V line
+r48   e4 vn 12k                     ; R48 12K
+q9    vn d7a e89 Q2N4058            ; Q9 2N4058: collector to -10 V
+q8    c8 d7b e89 Q2N4058            ; Q8 2N4058
+r45   vp e89 1.2k                   ; R45 1200: the PNP pair's tail
+r36   c8 vn 2.7k                    ; R36 2700
+q3    buf c8 vn Q2N3392             ; Q3 2N3392: output stage
+r15   vp buf 2.2k                   ; R15 2200
+r24   buf fb 10.7k                  ; R24 10.7K 1%
+r25   fb vn 15k                     ; R25 15K 1%
+r4    vp fb 33.2k                   ; R4 33.2K 1%
+cst   buf fb 10p                    ; C* 10pf, etched on the printed circuit board
+c3    e89 buf 100p                  ; C3 100pf (4.7pf on the 1972 drawing)
+
+* --- reset Schmitt trigger Q5/Q6 (2N4402 on the drawing, 2N3906 in Table 7-5) ---------
+q5    c5 b5 0 Q2N4402               ; Q5: emitter at GND
+q6    c6 c5 0 Q2N4402               ; Q6: emitter at GND, base on Q5's collector
+r31   c5 vn 10k                     ; R31 10K
+r16   vp b5 33.2k                   ; R16 33.2K 1%
+r30   buf b5 10.7k                  ; R30 10.7K 1%
+r17   b5 nj 10k                     ; R17 10K: latching feedback
+r6    c6 nj 56                      ; R6 56
+r26   nj vn 1000                    ; R26 1000
+r41   c6 rst 910                    ; R41 910: drives Q10's base
+
+* --- sawtooth output -----------------------------------------------------------------------
+r34   buf saw 4.3k                  ; R34 4300
+r33   saw 0 4.7k                    ; R33 4700
+
+* --- triangle: Q2 folds the sawtooth, Q1 buffers it --------------------------------------
+q2    tric buf e2t Q2N3392          ; Q2 2N3392
+r3    vp tric 10.7k                 ; R3 10.7K 1%
+r29   e2t vn 10k                    ; R29 10K 1%
+r14   tric vn 150k                  ; R14 150K
+q1    vp tric e1 Q2N3392            ; Q1 2N3392: emitter follower
+r28   e1 tri 750                    ; R28 750
+r23   tri vn 8.2k                   ; R23 8200
+
+* --- rectangular: comparator Q11/Q12 on the sawtooth plus the width bias ---------------
+r1    width b11 43k                 ; R1 43K
+r40   buf b11 43k                   ; R40 43K
+r44   b11 vn 390k                   ; R44 390K
+q11   c11 b11 0 Q2N4058             ; Q11 2N4058: emitter at GND
+r39   c11 b12 100k                  ; R39 100K
+r35   b12 vn 100k                   ; R35 100K
+q12   c12 b12 vn Q2N3392            ; Q12 2N3392: emitter at -10 V
+r2    c12 b11 910k                  ; R2 910K: hysteresis
+r13   c12 rect 6.2k                 ; R13 6200
+r22   0 rect 4.7k                   ; R22 4700
+.ends mm_vco

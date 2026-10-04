@@ -1,0 +1,61 @@
+[package]
+name = "ca72-plugin"
+description = "The CA-72 as a VST3 and CLAP plug-in"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[lib]
+crate-type = ["cdylib", "lib"]
+
+[features]
+# A debug build that aborts when the audio thread allocates, for trying the plug-in in a
+# host (nih-plug's own global allocator: the tests count with theirs instead).
+assert_process_allocs = ["nih_plug/assert_process_allocs"]
+# The plug-in as an application of its own (nih-plug's standalone host), for trying the
+# editor without a host: `cargo run -p ca72-plugin --example standalone --features standalone`.
+standalone = ["nih_plug/standalone"]
+
+[[example]]
+name = "standalone"
+required-features = ["standalone"]
+
+[dependencies]
+ca72.workspace = true
+# The workers' real-time scheduling (decisions.md R11).
+ca72-rt.workspace = true
+libm.workspace = true
+ca72-panel = { path = "../ca72-panel" }
+nih_plug.workspace = true
+# The editor's window and its pixels: the revision nih-plug's own examples use. baseview
+# takes `raw-window-handle` 0.5, softbuffer 0.6.
+baseview = { git = "https://github.com/RustAudio/baseview.git", rev = "9a0b42c09d712777b2edb4c5e0cb6baf21e988f0" }
+softbuffer = { version = "0.4.6", default-features = false, features = ["kms", "x11"] }
+raw-window-handle = "0.5"
+raw-window-handle-06 = { package = "raw-window-handle", version = "0.6" }
+keyboard-types = { version = "0.6.1", default-features = false }
+# The presets' files (decisions.md R10: the format the DAW's instrument shares).
+toml = "0.7"
+
+# The screen's size, for the editor's first size (and on Windows the keyboard's focus and
+# the pointer's capture): the versions baseview takes.
+[target.'cfg(target_os = "macos")'.dependencies]
+cocoa = "0.24.0"
+
+[target.'cfg(target_os = "windows")'.dependencies]
+winapi = { version = "0.3.9", features = ["winuser", "windef"] }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+x11 = { version = "2.21", features = ["xlib"] }
+# The monitor the editor opens on (RandR): the version baseview takes, in Rust (no libXrandr).
+x11rb = { version = "0.13.0", features = ["randr"] }
+
+[dev-dependencies]
+ca72-analysis.workspace = true
+ca72-rt.workspace = true
+tempfile.workspace = true
+
+[lints]
+workspace = true

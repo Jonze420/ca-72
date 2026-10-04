@@ -1,0 +1,6 @@
+{
+  "panel": {"a440": true, "osc1_range": "2", "osc1_waveform": "triangle", "loudness_sustain": 0.8},
+  "notes": [[0.5, 1.0, 45], [2.0, 1.0, 57]],
+  "moves": [[3.0, "a440", false]],
+  "seconds": 4.0
+}

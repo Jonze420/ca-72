@@ -1,0 +1,11 @@
+[package]
+name = "xtask"
+description = "Builds the plug-in's bundles (nih-plug's bundler): cargo xtask bundle ca72-plugin --profile bundle"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+nih_plug_xtask.workspace = true

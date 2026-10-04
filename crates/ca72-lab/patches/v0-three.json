@@ -1,0 +1,14 @@
+{
+  "panel": {
+    "osc1_range": "16", "osc1_waveform": "sawtooth", "osc1_volume": 0.8,
+    "osc2_on": true, "osc2_range": "16", "osc2_waveform": "sawtooth", "osc2_volume": 0.7, "osc2_freq": 0.51,
+    "osc3_on": true, "osc3_range": "32", "osc3_waveform": "square", "osc3_volume": 0.6, "osc3_freq": 0.5,
+    "cutoff": 0.3, "emphasis": 0.35, "contour_amount": 0.35,
+    "filter_attack": 0.0, "filter_decay": 0.35, "filter_sustain": 0.25,
+    "loudness_attack": 0.0, "loudness_decay": 0.3, "loudness_sustain": 0.8,
+    "glide": 0.3, "glide_on": true
+  },
+  "notes": [[0.2, 0.25, 45], [0.5, 0.25, 45], [0.8, 0.2, 57], [1.1, 0.25, 45],
+            [1.4, 0.2, 48], [1.7, 0.4, 50], [2.3, 0.8, 45]],
+  "seconds": 4.0
+}

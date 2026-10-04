@@ -1,0 +1,44 @@
+* Minimoog board No. 4: circuit No. 12, the external preamplifier and overload lamp driver.
+*
+* Source drawing: service manual Figure 9-11 (S-F911); reference designators are Figure
+* 9-11's. The EXTERNAL INPUT's volume (R9, 1M audio, on the front panel) feeds pin 11.
+* Preamplifier (2.12, "a 200 gain amplifier"): R78 1K and C23 into Q27 (R66 100K to
+* ground), paired with Q32 (TIS97; tail R58 150K to -10 V); Q27's collector (R65 27K; R64
+* 100 with C22 100 pF to +10 V) drives Q33 (2N4058), whose collector is the output with R57
+* 10K to -10 V; R61 200K against R62 1K (C26 220 uF to ground) and R63 1K close the loop
+* on Q32's base (C21 10 pF). C20 1.0 uF takes the output to pin 17 (SW10 and R46 33K to
+* the mixer's bus). Overload lamp driver (from +15 V): Q25 (2N3392) through R53 10K charges
+* C14 .47 uF from the output's peaks; R56 100K and R48 680K divide it toward -10 V onto Q31
+* (TIS93), which follows into Q34 (TIS92): Q34 sinks the lamp (pin 19, B1 from +15 V)
+* through R72 47 to the switched ground (pin 20).
+*
+* Ports: in (pin 11), out (pin 17), amp (the output before C20), lamp (pin 19), swgnd
+* (pin 20), p10, n10, p15.
+.subckt mm_preamp in out amp lamp swgnd p10 n10 p15
+r78   in n78 1k                     ; R78 1K
+c23   n78 b27 0.1u                  ; C23 .1 uF
+r66   b27 0 100k                    ; R66 100K
+q27   c27 b27 tail QTIS97           ; Q27 TIS97
+r65   p10 c27 27k                   ; R65 27K
+r64   c27 n64 100                   ; R64 100
+c22   n64 p10 100p                  ; C22 100 pF
+q32   p10 b32 tail QTIS97           ; Q32 TIS97
+r58   tail n10 150k                 ; R58 150K
+q33   amp c27 p10 Q2N4058           ; Q33 2N4058
+r57   amp n10 10k                   ; R57 10K
+r63   b32 n61 1k                    ; R63 1K
+r61   n61 amp 200k                  ; R61 200K
+r62   n61 n62 1k                    ; R62 1K
+c26   n62 0 220u                    ; C26 220 uF
+c21   b32 amp 10p                   ; C21 10 pF
+c20   amp out 1u                    ; C20 1.0 uF
+r53   amp b25 10k                   ; R53 10K
+q25   p15 b25 e25 Q2N3392           ; Q25 2N3392
+c14   e25 0 0.47u                   ; C14 .47 uF
+r56   e25 m 100k                    ; R56 100K
+r48   m n10 680k                    ; R48 680K
+q31   n10 m e31 QTIS93              ; Q31 TIS93
+r69   p15 e31 10k                   ; R69 10K
+q34   c34 e31 swgnd QTIS92          ; Q34 TIS92
+r72   lamp c34 47                   ; R72 47
+.ends mm_preamp

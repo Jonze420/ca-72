@@ -1,0 +1,25 @@
+[package]
+name = "ca72"
+description = "Real-time models of the Minimoog Model D's circuits, derived from and tested against the circuit lab"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[features]
+# Per-part timing for `ca72-lab perf` (off: the laps compile to nothing).
+profile = []
+# `ulp::set` moves the elementary functions' results by an ulp (a render's twins).
+twins = []
+# `ulp::calls` counts the elementary functions' calls by their call site.
+count = []
+
+[dependencies]
+libm.workspace = true
+
+[dev-dependencies]
+ca72-rt.workspace = true
+
+[lints]
+workspace = true

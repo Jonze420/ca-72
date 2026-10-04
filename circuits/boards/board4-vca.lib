@@ -1,0 +1,81 @@
+* Minimoog board No. 4: circuit No. 7, the two voltage controlled amplifiers and the
+* output stage.
+*
+* Source drawing: service manual Figure 9-11 (S-F911); reference designators are Figure
+* 9-11's. The 1970 R. A. Moog drawing 1445 (S-RAM) has the same circuit. Three documented
+* states of R2, R8/R28 (and the A-440's R40): 1970 (47K, 27 ohm, 1K), Folkman's July 1973
+* kit (160K, 4.7 ohm, 10K; the owner's default, history.md), Figure 9-11 (82K, 8.2 ohm,
+* 22K).
+*
+* Ports:
+*   vin     the filter's output (into R2)
+*   cont    pin 9, the loudness contour (into R59)
+*   ext     pin 10, the EXT. LOUDNESS input; the rear jack J3 normally ties it to +10 V
+*           through 33K (dwg 1445)
+*   a440    the A-440 oscillator's output: through R40 and C8 onto Q14's collector, which is
+*           the output stage's input (dwg 1445: "from A-440 circuit" to the output PNP's base)
+*   main    pin 21, main output (through R77 1K)
+*   phones  pin 22, to the headphone amplifier (through R75 1K)
+*   vp vn   +10 V and -10 V
+* Parameters: r2, r8 (R8 = R28), r40, r14 (1st VCA BAL wiper position, 0..1), r12 (2nd VCA
+* BAL wiper position, 0..1).
+.subckt mm_vca vin cont ext a440 main phones vp vn
++ params: r2=160k r8=4.7 r40=10k r14=0.5 r12=0.5
+
+* --- the VCAs' decoupled supply chain -------------------------------------------------
+r10   vp nl 120                     ; R10 120
+c4    vp nl 220u                    ; C4 220 uF (across R10)
+r11   nl nm 150                     ; R11 150
+r13   nm nn 120                     ; R13 120
+r22   nn bb 120                     ; R22 120
+r36   bb 0 510                      ; R36 510: the first pair's bias node
+c15   bb 0 220u                     ; C15 220 uF
+
+* --- first VCA: Q16/Q15 (TIS97), tail from Q18 driven by the loudness contour ---------
+rr2   vin n2 {r2}                   ; R2: input attenuator with R34
+c6    n2 b16 0.33u                  ; C6 0.33 uF
+r34   b16 bb 820                    ; R34 820
+q16   c16 b16 e1 QTIS97             ; Q16
+q15   c15 bb e1 QTIS97              ; Q15: base on the bias node
+rr14a nn t14 {max(25*r14,1e-3)}     ; R14 25 ohm 1st VCA BAL: wiper at nn
+rr14b nn u14 {max(25*(1-r14),1e-3)}
+r19   t14 c16 100                   ; R19 100
+r23   u14 c15 100                   ; R23 100
+r35   e1 c18 1k                     ; R35 1K
+q18   c18 b18 e18 QTIS97            ; Q18: the contour's current source
+r59   cont b18 68k                  ; R59 68K
+r37   e18 0 6.8k                    ; R37 6.8K
+r43   e18 vn 270k                   ; R43 270K
+
+* --- second VCA: Q14/Q13 (TIS97) on the first's collectors, tail from Q21 -------------
+q14   c14 c16 e2 QTIS97             ; Q14: base on Q16's collector
+q13   c13 c15 e2 QTIS97             ; Q13: base on Q15's collector
+rr12a nm t12 {max(100*r12,1e-3)}    ; R12 100 ohm 2nd VCA BAL: wiper at nm
+rr12b nm u12 {max(100*(1-r12),1e-3)}
+r18   t12 c14 330                   ; R18 330
+r21   u12 c13 330                   ; R21 330
+r33   e2 c21 470                    ; R33 470
+q21   c21 ext e21 QTIS97            ; Q21: base on the EXT. LOUDNESS input
+r51   ext 0 33k                     ; R51 33K
+r42   e21 0 3.3k                    ; R42 3.3K
+r44   e21 vn 150k                   ; R44 150K
+
+* --- the A-440 reference joins at the second VCA's collector -------------------------
+rr40  a440 n40 {r40}                ; R40
+c8    n40 c14 0.1u                  ; C8 0.1 uF
+
+* --- output stage: Q12/Q17 (2N4058) with Q1 as their tail --------------------------------
+q1    t1 nl e1b Q2N4058             ; Q1 2N4058: base on the chain's first node
+r9    vp e1b 62                     ; R9 62
+rr8   t1 e12 {r8}                   ; R8
+rr28  t1 e17 {r8}                   ; R28
+q12   c12 c14 e12 Q2N4058           ; Q12: base on Q14's collector
+q17   o17 c13 e17 Q2N4058           ; Q17: base on Q13's collector
+r30   c12 0 680                     ; R30 680
+r29   o17 0 680                     ; R29 680
+dcr2  0 o17 D1N458A                 ; CR2 1N458A: clamps the output above -0.6 V
+dcr1  o17 vp D1N458A                ; CR1 1N458A: clamps it below +10.6 V
+c2    o17 no 10u                    ; C2 10 uF
+r75   no phones 1k                  ; R75 1K
+r77   no main 1k                    ; R77 1K
+.ends mm_vca

@@ -1,0 +1,8 @@
+{
+  "panel": {"osc1_on": false, "ext_on": true, "ext_volume": 0.85, "cutoff": 0.6, "emphasis": 0.3,
+            "loudness_sustain": 1.0, "filter_sustain": 0.6},
+  "notes": [[0.1, 1.5, 45], [2.0, 1.5, 52]],
+  "moves": [[1.0, "ext_volume", 1.0], [2.5, "ext_volume", 0.7]],
+  "input": {"hz": 220.0, "amp": 0.02},
+  "seconds": 4.0
+}

@@ -1,0 +1,7 @@
+[alias]
+xtask = "run --package xtask --release --"
+
+# The plug-in uses macOS 11's audio workgroups (decisions.md R11), so its Intel slice must
+# not claim the toolchain's older default, 10.12 (R17).
+[env]
+MACOSX_DEPLOYMENT_TARGET = "11.0"

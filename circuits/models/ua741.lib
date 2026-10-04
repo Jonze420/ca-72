@@ -1,0 +1,62 @@
+* uA741 operational amplifier: Boyle macromodel                                      DS
+*
+* Method: G. R. Boyle, B. M. Cohn, D. O. Pederson, J. E. Solomon, "Macromodeling of
+* integrated circuit operational amplifiers", IEEE J. Solid-State Circuits SC-9(6),
+* 353-364, Dec. 1974. Parameters computed here from the uA741's typical data-sheet
+* values (Fairchild uA741 data sheet; TI SLOS094 repeats them), at 25 C, +-15 V. The
+* netlist's layout (its nodes, element names and order) follows TI's PSpice uA741
+* macromodel, UA741.301 in TI's sloj138; its values are computed here:
+*   input bias current Ib = 80 nA          slew rate SR = 0.5 V/us (both edges)
+*   open-loop gain Avd = 200 000           unity-gain frequency fu = 1 MHz
+*   CMRR = 90 dB                           excess phase at fu = 30 degrees (assumed)
+*   output resistance Ro = 75 ohm          short-circuit current 25 mA
+*   supply current 1.7 mA                  output within about 1.6 V of each rail
+* Derivation (Boyle's equations; C2 = 30 pF chosen, as Boyle does):
+*   IC1 = IC2 = SR * C2 / 2 = 7.5 uA;   IEE = 2 * IC1 = 15 uA (+ Vbe/REE)
+*   BF = IC1 / Ib = 93.75
+*   RC1 = RC2 = 1 / (2 pi fu C2) = 5305 ohm;          ga = 1/RC1 = 188.5 uS
+*   RE1 = RE2 = BF/(BF+1) * (RC1 - Vt/IC1) = 1836 ohm (Vt = 25.85 mV)
+*   gcm = ga / CMRR = 5.96 nS;  REE = 200 V / IEE = 13.2 Mohm
+*   R2 = 100 kohm;  fb = Avd / (ga * RO2) with RO2 = 100 ohm -> 10.61e6
+*   C1 = (C2 / 2) * tan(30 deg) = 8.66 pF
+*   RO1 = 50 ohm, RO2 = 100 ohm (Ro small-signal = RO1 + RO2 || ... ~ 75 ohm at 1 kHz)
+*   RP = (30 V)^2 / (30 V * 1.7 mA) = 18.2 kohm
+* Output swing: 1 V + one diode drop from each rail (VC, VE, DC, DE).
+* Limits of this model: no noise (popcorn noise and jitter are not simulated), no
+* input common-mode range limit, no temperature dependence beyond the transistors'.
+*
+* Nodes: non-inverting input, inverting input, positive supply, negative supply, output.
+.subckt ua741 inp inn vcc vee out
+c1   11 12 8.66p
+c2   6 7 30p
+dc   out 53 dx741
+de   54 out dx741
+dlp  90 91 dx741
+dln  92 90 dx741
+dp   vee vcc dx741
+egnd 99 0 poly(2) (vcc,0) (vee,0) 0 0.5 0.5
+fb   7 99 poly(5) vb vc ve vlp vln 0 10.61e6 -10e6 10e6 10e6 -10e6
+ga   6 0 11 12 188.5u
+gcm  0 6 10 99 5.96n
+iee  10 vee dc 15.16u
+hlim 90 0 vlim 1k
+q1   11 inn 13 qx741
+q2   12 inp 14 qx741
+r2   6 9 100k
+rc1  vcc 11 5305
+rc2  vcc 12 5305
+re1  13 10 1836
+re2  14 10 1836
+ree  10 99 13.2meg
+ro1  8 out 50
+ro2  7 99 100
+rp   vcc vee 18.2k
+vb   9 0 dc 0
+vc   vcc 53 dc 1
+ve   54 vee dc 1
+vlim 7 8 dc 0
+vlp  91 0 dc 25
+vln  0 92 dc 25
+.model dx741 d(is=800e-18 rs=1)
+.model qx741 npn(is=800e-18 bf=93.75)
+.ends ua741

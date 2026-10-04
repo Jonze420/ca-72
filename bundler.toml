@@ -1,0 +1,3 @@
+# The bundles' names (nih-plug's bundler): CA-72.vst3 and CA-72.clap.
+[ca72-plugin]
+name = "CA-72"

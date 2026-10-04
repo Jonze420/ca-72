@@ -1,0 +1,26 @@
+* Minimoog board No. 3: circuit No. 15, the modulation mix amplifier.
+*
+* Source drawing: service manual Figure 9-8 (S-F98); reference designators are Figure 9-8's.
+* An inverter with a gain of about 2 (service manual 2.4): Q18 and Q17 (2N3392) a pair on
+* R54 43K to -10 V, Q17's base at GND, its collector on R42 6.2K driving Q7 (2N4058) whose
+* collector is the output (R30 10K to -10 V); R60 91K from the output back to Q18's base;
+* R38 390 and C14 .022 uF from Q7's base to GND compensate it. The inputs, pins 4 and 3,
+* come from the ends of the front panel's MODULATION MIX pot through R62 and R64 43K; the
+* output reaches the left hand controller through R57 1K (pin 1).
+*
+* Ports: a (pin 4, the noise's end of MODULATION MIX), b (pin 3, oscillator 3's end), out
+* (pin 1), p10, n10.
+.subckt mm_modmix a b out p10 n10
+r62   a sum 43k                     ; R62 43K
+r64   b sum 43k                     ; R64 43K
+r60   amp sum 91k                   ; R60 91K
+q18   p10 sum ne Q2N3392            ; Q18 2N3392 (collector at +10 V)
+q17   n17 0 ne Q2N3392              ; Q17 2N3392 (base at GND)
+r54   ne n10 43k                    ; R54 43K
+r42   p10 n17 6.2k                  ; R42 6.2K
+q7    amp n17 p10 Q2N4058           ; Q7 2N4058
+r30   amp n10 10k                   ; R30 10K
+r38   n17 n38 390                   ; R38 390
+c14   n38 0 0.022u                  ; C14 .022 uF
+r57   amp out 1k                    ; R57 1K
+.ends mm_modmix

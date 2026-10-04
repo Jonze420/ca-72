@@ -1,0 +1,166 @@
+* Semiconductor models for the Minimoog circuit reference.
+*
+* Every model here is written by this project from published data; no vendor model is
+* copied (vendor models whose terms forbid redistribution are fetched into a local cache
+* for cross-checks only: the semis/ entries of docs/circuit/sources/manifest.tsv).
+* Provenance classes, as in docs/circuit/components.md:
+*   DS   datasheet-derived: parameters computed from a datasheet's specified points
+*   GS   generic substitute: typical small-signal silicon values, with the datasheet's
+*        specified points (gain bin, capacitances) where the part has them
+*   FIT  fitted to measurements (none yet)
+* All models are referenced to 25 C (TNOM=25), the datasheets' temperature.
+*
+* Revision 1, 2026-09-28: first pass, spec points only; no curve fits yet.
+
+* ---------------------------------------------------------------------------------------
+* CA3046 NPN (one transistor of the array)                                            DS
+* Source: Intersil CA3046 data sheet, File Number 341.5, May 2001 (a later maker of the
+* RCA part; the 1970s RCA parts are assumed alike, docs/circuit/components.md C1).
+* Typical values at 25 C, VCE = 3 V:
+*   VBE = 0.715 V at IE = 1 mA, 0.800 V at IE = 10 mA   -> IS, and RE + RB/BF = 3 ohm
+*   hFE = 100 at 1 mA, 54 at 10 uA                       -> BF, ISE, NE
+*   hoe = 15.6 uS at 1 mA                                -> VAF = 64 V
+*   fT  = 550 MHz at 3 mA                                -> TF
+*   CEB 0.6 pF at VEB 3 V, CCB 0.58 pF at VCB 3 V, CCI 2.8 pF at VCS 3 V
+*                                                        -> CJE, CJC, CJS at zero bias
+*   dVBE/dT = -1.9 mV/C at 1 mA (checked by test, not fitted)
+* Derivation: with 3 mV ohmic drop at 1 mA the junction is at 0.712 V:
+*   IS = 1e-3 * exp(-0.712/0.025693) = 9.3e-16. Extra base current at 10 uA
+*   (Ic/54 - Ic/110 = 94 nA at VBE = 0.5935 V, NE = 2): ISE = 9.1e-13.
+* The split of the 3 ohm between RE and RB is not given; RE = 2, RB = 100 assumed.
+.model CA3046_NPN NPN (TNOM=25 IS=9.3e-16 NF=1 BF=110 ISE=9.1e-13 NE=2 VAF=64
++ BR=1 RB=100 RE=2 RC=20 CJE=1.0p VJE=0.75 MJE=0.33 CJC=1.0p VJC=0.75 MJC=0.33
++ CJS=6.3p VJS=0.75 MJS=0.5 TF=0.28n TR=10n EG=1.11 XTI=3 XTB=1.5)
+
+* ---------------------------------------------------------------------------------------
+* 2N3392 NPN (GE; small-signal, high gain)                                             GS
+* Source for the specified points: Central Semiconductor MPS3392 data sheet R1 (2017),
+* the plastic successor of the 2N3392 gain bin: hFE 150..300 at VCE 4.5 V, IC 2 mA;
+* Cob <= 3.5 pF at VCB 10 V. BF is the bin's geometric mean. The rest are typical
+* small-signal silicon values (IS, RB, TF, TR, BR are not specified by the datasheet).
+.model Q2N3392 NPN (TNOM=25 IS=5e-15 NF=1 BF=212 ISE=1e-14 NE=1.5 VAF=100 IKF=0.1
++ BR=4 RB=10 RE=0.5 RC=1 CJE=4.5p VJE=0.75 MJE=0.33 CJC=3.5p VJC=0.75 MJC=0.33
++ TF=0.4n TR=60n EG=1.11 XTI=3 XTB=1.5)
+
+* ---------------------------------------------------------------------------------------
+* 2N4058 PNP (Fairchild; low noise, high gain)                                         GS
+* Source for the specified points: Central Semiconductor 2N4058-2N4062 data sheet R1
+* (2014): hFE 100..400 at VCE 5 V, IC 100 uA; VBE(on) 0.5..1.0 V at 1 mA.
+.model Q2N4058 PNP (TNOM=25 IS=5e-15 NF=1 BF=200 ISE=1e-14 NE=1.5 VAF=60 IKF=0.1
++ BR=4 RB=20 RE=0.5 RC=1 CJE=6p VJE=0.75 MJE=0.33 CJC=5p VJC=0.75 MJC=0.33
++ TF=0.6n TR=80n EG=1.11 XTI=3 XTB=1.5)
+
+* ---------------------------------------------------------------------------------------
+* 2N4402 PNP (general purpose, switching)                                              GS
+* Source for the specified points: Central Semiconductor 2N4402/2N4403 data sheet R2
+* (2014): hFE >= 30 at 1 mA, >= 50 at 10 mA, 50..150 at 150 mA; fT >= 150 MHz at 20 mA;
+* Cob <= 8.5 pF at VCB 10 V; Cib <= 30 pF at VBE 0.5 V; toff <= 255 ns (IC 150 mA,
+* IB1 = IB2 = 15 mA). Zero-bias capacitances scaled from the specified biases.
+* TR (storage) is estimated from toff and matters for the oscillator's reset
+* (docs/circuit/components.md C4).
+.model Q2N4402 PNP (TNOM=25 IS=1.7e-14 NF=1 BF=100 ISE=1.7e-14 NE=2 VAF=100 IKF=0.77
++ BR=10 RB=4 RE=0.3 RC=0.5 CJE=21p VJE=0.75 MJE=0.33 CJC=20p VJC=0.75 MJC=0.33
++ TF=0.8n TR=50n EG=1.11 XTI=3 XTB=1.5)
+
+* 2N3906 PNP: Table 7-5 lists 2N3906 where Figure 9-3 draws 2N4402 (Q5, Q6, Q16, Q17,
+* Q28, Q29). Kept so the two readings can be compared.                                GS
+* Specified points (ON Semiconductor 2N3906 data sheet): hFE 100..300 at 10 mA;
+* Cobo <= 4.5 pF; Cibo <= 10 pF; ts <= 225 ns.
+.model Q2N3906 PNP (TNOM=25 IS=8e-15 NF=1 BF=180 ISE=1.4e-14 NE=1.5 VAF=100 IKF=0.2
++ BR=5 RB=10 RE=0.5 RC=1 CJE=8p VJE=0.75 MJE=0.33 CJC=4.5p VJC=0.75 MJC=0.33
++ TF=0.5n TR=40n EG=1.11 XTI=3 XTB=1.5)
+
+* ---------------------------------------------------------------------------------------
+* E402 monolithic dual N-channel JFET (Siliconix), one half                         DS
+* Source: Siliconix E400/E401/E402 data sheet, 1977 Siliconix FET Data Book p. 3-81:
+*   VGS(off) -1.0..-4.5 V; IDSS 0.5..5.0 mA (VDS 20 V); gfs 1000..4000 uS at VGS 0,
+*   600..1600 uS at ID 200 uA; gos <= 10 uS at ID 200 uA; Ciss 4.5 pF, Crss 1.2 pF
+*   (VDS 20 V, VGS 0); IG <= 200 pA at VDG 20 V (doubles per 10 C);
+*   |VGS1 - VGS2| <= 20 mV (E402).
+* Chosen mid-range: VTO = -1.5 V, BETA = 1 mA/V^2 (IDSS 2.25 mA, gfs 3 mS at VGS 0,
+* 0.89 mS at 200 uA), LAMBDA = gos/ID = 0.05. CGD at zero bias from Crss at VDG 20 V.
+.model JE402 NJF (TNOM=25 VTO=-1.5 BETA=1.0e-3 LAMBDA=0.05 RD=20 RS=20
++ CGS=3.3p CGD=3.9p PB=0.6 FC=0.5 IS=1e-14 N=1)
+
+* ---------------------------------------------------------------------------------------
+* Board 4 (filter and VCA) transistors. Texas Instruments' TIS9x epoxy TO-92 series;
+* no manufacturer SPICE models exist under these names (docs/circuit/components.md).
+
+* TIS97 NPN, low noise (the filter's ladder and input pair, the buffer, the VCAs)     GS
+* Specified points (TI data sheet, via the research report): hFE 250..700 at VCE 5 V,
+* IC 100 uA; low-frequency noise figure specified. BF is the bin's geometric mean. The
+* ladder's pairs are matched on the drawing ("M"); the model has no mismatch.
+.model QTIS97 NPN (TNOM=25 IS=5e-15 NF=1 BF=420 ISE=1e-14 NE=1.5 VAF=100 IKF=0.1
++ BR=4 RB=50 RE=0.5 RC=1 CJE=5p VJE=0.75 MJE=0.33 CJC=3p VJC=0.75 MJC=0.33
++ TF=0.4n TR=60n EG=1.11 XTI=3 XTB=1.5)
+
+* TIS92 NPN / TIS93 PNP, general purpose complementary pair (the filter's exponential
+* converter Q28/Q26, "matched to +-3 mV at 20 mA"; bulletin 804C)                   GS
+.model QTIS92 NPN (TNOM=25 IS=1e-14 NF=1 BF=200 ISE=2e-14 NE=1.5 VAF=80 IKF=0.3
++ BR=4 RB=10 RE=0.3 RC=0.5 CJE=15p VJE=0.75 MJE=0.33 CJC=8p VJC=0.75 MJC=0.33
++ TF=0.5n TR=50n EG=1.11 XTI=3 XTB=1.5)
+.model QTIS93 PNP (TNOM=25 IS=1e-14 NF=1 BF=200 ISE=2e-14 NE=1.5 VAF=80 IKF=0.3
++ BR=4 RB=10 RE=0.3 RC=0.5 CJE=15p VJE=0.75 MJE=0.33 CJC=8p VJC=0.75 MJC=0.33
++ TF=0.6n TR=60n EG=1.11 XTI=3 XTB=1.5)
+
+* 1N458A small-signal diode (the VCA output's clamps CR1, CR2)                         GS
+* Specified points (Fairchild 1978 diode data book): VF <= 1.0 V at 100 mA;
+* IR <= 25 nA at 125 V.
+.model D1N458A D (TNOM=25 IS=2e-12 N=1.8 RS=3 BV=150 IBV=5e-9 CJO=4p M=0.4 TT=3u)
+
+* ---------------------------------------------------------------------------------------
+* Board 2 (contour generators and keyboard) parts.
+
+* 2N3415 NPN (GE; the contour generators' decoupling regulator Q26)                    GS
+* Source: Central Semiconductor 2N3414-2N3417 data sheet: hFE 180..540 at VCE 4.5 V,
+* IC 2 mA (2N3415); VBE(sat) <= 0.85 V and VCE(sat) <= 0.3 V at IC 50 mA, IB 3 mA.
+* BF is the bin's geometric mean; the rest typical small-signal silicon.
+.model Q2N3415 NPN (TNOM=25 IS=1e-14 NF=1 BF=312 ISE=2e-14 NE=1.5 VAF=100 IKF=0.3
++ BR=4 RB=10 RE=0.2 RC=0.5 CJE=10p VJE=0.75 MJE=0.33 CJC=6p VJC=0.75 MJC=0.33
++ TF=0.5n TR=50n EG=1.11 XTI=3 XTB=1.5)
+
+* 2N4303 N-channel JFET (Siliconix; the keyboard's glide switch Q13 and follower Q10)  DS
+* Source: Siliconix 2N4302/2N4303/2N4304 data sheet, 1977 Siliconix FET Data Book p. 59:
+*   IDSS 4.0..10 mA (VDS 20 V); VGS(off) >= -6.0 V; gfs >= 2000 uS; gos <= 50 uS;
+*   Crss <= 3 pF; IGSS <= 1 nA at VGS -10 V.
+* Chosen: IDSS the bin's geometric mean 6.3 mA with VTO -3.5 V (BETA = IDSS / VTO^2),
+* gfs 3.6 mS at VGS 0; LAMBDA = gos / IDSS; CGD from Crss.
+.model J2N4303 NJF (TNOM=25 VTO=-3.5 BETA=5.1e-4 LAMBDA=0.005 RD=10 RS=10
++ CGS=5p CGD=3p PB=0.6 FC=0.5 IS=1e-14 N=1)
+
+* 1N34A germanium point-contact diode (the contour generators' CR1, CR3, CR6, CR8, CR10) GS
+* Source: Microsemi 1N34A data sheet: VF <= 1.0 V at 5 mA; IR <= 30 uA at 10 V,
+* <= 500 uA at 50 V; PIV 65 V. Typical germanium otherwise: 0.27 V at 1 mA.
+.model D1N34A D (TNOM=25 IS=1e-6 N=1.5 RS=20 BV=65 IBV=1e-3 CJO=1p M=0.5 TT=1n EG=0.67
++ XTI=3)
+
+* 1N4004 silicon rectifier (the contour generators' CR2, CR4, CR7, CR9; keyboard CR5)  GS
+* Source: the JEDEC 1N4001-1N4007 ratings (VF <= 1.1 V at 1 A, IR <= 5 uA at the rated
+* voltage); generic silicon rectifier values at the milliampere currents it carries here.
+.model D1N4004 D (TNOM=25 IS=7e-9 N=1.9 RS=0.04 BV=400 IBV=5e-6 CJO=20p M=0.33 TT=3u)
+
+* ---------------------------------------------------------------------------------------
+* Board 3 (power supply) parts.
+
+* MPS-U05 NPN / MPS-U55 PNP, Motorola 1 W plastic power pair (the regulators' pass
+* transistors Q20 and Q1)                                                                GS
+* No data sheet in hand: generic silicon power values (hFE about 150 at 100 mA, fT about
+* 50 MHz). Only the regulators' loop gain rests on them, and it is dominated by the
+* driver stages (docs/circuit/board3.md).
+.model QMPSU05 NPN (TNOM=25 IS=1e-13 NF=1 BF=150 ISE=1e-13 NE=1.5 VAF=100 IKF=1
++ BR=5 RB=5 RE=0.05 RC=0.1 CJE=80p VJE=0.75 MJE=0.33 CJC=30p VJC=0.75 MJC=0.33
++ TF=2n TR=100n EG=1.11 XTI=3 XTB=1.5)
+.model QMPSU55 PNP (TNOM=25 IS=1e-13 NF=1 BF=150 ISE=1e-13 NE=1.5 VAF=100 IKF=1
++ BR=5 RB=5 RE=0.05 RC=0.1 CJE=80p VJE=0.75 MJE=0.33 CJC=30p VJC=0.75 MJC=0.33
++ TF=2.5n TR=100n EG=1.11 XTI=3 XTB=1.5)
+
+* 1N821 temperature-compensated reference diode (the +10 V regulator's CR3)           DS
+* Specified points (JEDEC 1N821-1N829 series): VZ = 6.2 V +-5 % at IZT = 7.5 mA; dynamic
+* impedance ZZT <= 15 ohm at 7.5 mA. RS = 10 with the junction's own 3.4 ohm at 7.5 mA
+* gives 13.4 ohm. Its temperature compensation (a forward junction in series) is not
+* modelled: the circuit runs at one temperature.
+.model D1N821 D (TNOM=25 IS=1e-14 N=1 RS=10 BV=6.2 IBV=7.5m NBV=1 CJO=100p M=0.33)
+
+* SG3246 silicon small-signal diode (Silicon General; the A-440's limiter CR3, CR4)     GS
+* No data sheet in hand: generic small-signal silicon switching diode values.
+.model DSG3246 D (TNOM=25 IS=2.5e-9 N=1.75 RS=0.6 BV=75 IBV=5u CJO=4p M=0.33 TT=20n)

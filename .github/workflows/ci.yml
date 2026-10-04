@@ -1,0 +1,176 @@
+# On macOS, Windows and Linux: the bundles (built first, with only the libraries the README
+# lists) and their installers (scripts/package.sh), clippy, the standalone, every test (on
+# Linux with ngspice 47, required), and the three validators on the bundles
+# (scripts/validate.sh). The bundles and installers are kept as the run's artifacts; the
+# macOS ones are universal (Apple silicon and Intel) and not yet signed. Linux builds on
+# Ubuntu 22.04 so that its bundles load on distributions as old as its C library. A tag
+# v<version> also puts the Windows and Linux installers, the notices and the checksums into
+# that version's draft release (made here if the macOS release has not made it), for a maintainer to
+# publish (decisions.md R17, R20).
+name: CI
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build:
+    name: ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { name: macOS, os: macos-15 }
+          - { name: Windows, os: windows-2025 }
+          - { name: Linux, os: ubuntu-22.04 }
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Rust (rust-toolchain.toml)
+        run: rustup toolchain install
+
+      - name: Rust for Intel Macs as well
+        if: runner.os == 'macOS'
+        run: rustup target add x86_64-apple-darwin aarch64-apple-darwin
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: The editor's libraries
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libx11-dev libx11-xcb-dev libxcb1-dev
+
+      - name: Bundles
+        run: |
+          if [ "$RUNNER_OS" = macOS ]; then
+            cargo xtask bundle-universal ca72-plugin --profile bundle
+          else
+            cargo xtask bundle ca72-plugin --profile bundle
+          fi
+
+      - name: The third-party notices up to date
+        if: runner.os == 'Linux'
+        run: python3 scripts/notices.py --check
+
+      - name: Inno Setup
+        if: runner.os == 'Windows'
+        run: choco install innosetup --no-progress -y
+
+      - name: Installer
+        run: scripts/package.sh
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: CA-72-${{ matrix.name }}
+          path: |
+            target/bundled/CA-72.vst3
+            target/bundled/CA-72.clap
+          if-no-files-found: error
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: CA-72-${{ matrix.name }}-installer
+          path: target/packages/*
+          if-no-files-found: error
+
+      - name: The standalone's, ngspice's and the validators' libraries
+        if: runner.os == 'Linux'
+        run: sudo apt-get install -y libasound2-dev libjack-jackd2-dev libgl-dev libreadline-dev bison flex xvfb
+
+      - name: Clippy
+        run: cargo clippy --workspace --all-targets --all-features -- -D warnings
+
+      - name: The standalone, as the README builds it
+        run: cargo build --release -p ca72-plugin --example standalone --features standalone
+
+      - name: ngspice 47, cached
+        if: runner.os == 'Linux'
+        id: ngspice
+        uses: actions/cache@v5
+        with:
+          path: ~/.local/opt/ngspice-47
+          key: ngspice-47-${{ matrix.os }}
+
+      - name: ngspice 47, built
+        if: runner.os == 'Linux' && steps.ngspice.outputs.cache-hit != 'true'
+        run: |
+          cd "$RUNNER_TEMP"
+          curl -fsSL -o ngspice-47.tar.gz https://downloads.sourceforge.net/project/ngspice/ng-spice-rework/47/ngspice-47.tar.gz
+          echo "894e649651f1838a14095e5a5439e7d3aa63e87ede14d283173fda4fcdef675f  ngspice-47.tar.gz" | sha256sum -c -
+          tar xzf ngspice-47.tar.gz
+          cd ngspice-47 && mkdir release && cd release
+          ../configure --prefix="$HOME/.local/opt/ngspice-47" --with-readline=yes --enable-openmp --without-x --disable-debug
+          make -j"$(nproc)"
+          make install
+
+      - name: Tests
+        run: |
+          if [ "$RUNNER_OS" = Linux ]; then export CA72_REQUIRE_NGSPICE=1; fi
+          cargo test --workspace
+
+      - name: Validators, cached
+        uses: actions/cache@v5
+        with:
+          path: ~/validators
+          key: validators-${{ matrix.os }}-${{ hashFiles('scripts/validate.sh') }}
+
+      - name: Validators
+        run: CA72_VALIDATORS="$HOME/validators" scripts/validate.sh
+
+  release:
+    name: Draft release
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: build
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/download-artifact@v7
+        with:
+          pattern: CA-72-*-installer
+          path: installers
+          merge-multiple: true
+
+      - name: The installers, their checksums and the notices, into the release's draft
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          # CI's macOS installer is unsigned: the release's is built, signed and notarised on
+          # a Mac and put in the draft from there (docs/macos-release.md, decisions.md R20).
+          rm -f installers/*-macOS.pkg
+          cp THIRD-PARTY-NOTICES.txt installers/
+          bash scripts/git-sources.sh
+          cp target/packages/CA-72-*-git-sources.tar.gz installers/
+          if gh release view "$GITHUB_REF_NAME" > /dev/null 2>&1; then
+            gh release download "$GITHUB_REF_NAME" -p SHA256SUMS.txt -D earlier || true
+          else
+            gh release create "$GITHUB_REF_NAME" --draft --verify-tag \
+              --title "CA-72 $version" \
+              --notes "Installers for Windows (10 or 11, 64-bit) and Linux (x86-64); the signed macOS installer is added from a Mac. How to install: see the README."
+          fi
+          (cd installers && sha256sum CA-72-* > ../ci-sums.txt)
+          # CI's line for a file before the draft's earlier one: sort -u keeps the first (R24).
+          cat ci-sums.txt earlier/SHA256SUMS.txt 2>/dev/null | sort -s -u -k2 > installers/SHA256SUMS.txt
+          gh release upload "$GITHUB_REF_NAME" installers/* --clobber

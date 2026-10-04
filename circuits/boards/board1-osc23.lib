@@ -1,0 +1,62 @@
+* Minimoog Model D oscillator board No. 1, "old" board (serial numbers below 10175):
+* what oscillators 2 and 3 have that oscillator 1 has not. Their cores, converters and
+* shapers are mm_vco (board1-vco.lib) under their own designators.
+*
+* Source drawing: service manual Figure 9-3 (S-F93), the front panel's controls from
+* Figure 9-17 (S-F917); docs/circuit/board1.md, "Oscillators 2 and 3".
+
+* --- oscillator 2's FREQUENCY network --------------------------------------------------
+* The front panel's OSCILLATOR-2 FREQUENCY (R4 5K linear, +10 V to R35 5.1K to GND) comes
+* in on 12A through R95 220K to IC4's + input, which R87 91K pulls toward -10 V and R94
+* 1K (mm_vco's R10) holds near the -5 V line: millivolts of offset, about 17 semitones over
+* the pot's travel ("+- a musical fifth").
+*   freq  12A, the pot's wiper (+5.05..+10 V)
+*   pos   IC4 pin 3 (mm_vco's pos)
+.subckt mm_osc2freq freq pos vn
+r95   freq pos 220k                 ; R95 220K
+r87   pos vn 91k                    ; R87 91K
+.ends mm_osc2freq
+
+* --- oscillator 3's control stage IC8 ------------------------------------------------------
+* OSCILLATOR-3 FREQUENCY (R5 5K linear, +10 V to R41 5.1K to GND) drives IC8 through R181
+* 51K (9A) and, with OSC. 3 CONTROL off, through R180 15K too (10A, joined by the switch):
+* IC8 inverts it about its + input (R150 1K from +10 V over R155 3.01K to GND: 7.51 V, the
+* pot's centre), with R170 15K feedback and R162 3.01K from +10 V, so its output sits at
+* -5.0 V (oscillator 3's summing junction) with the pot centred and R143 51.1K carries its
+* change into oscillator 3's summing junction: about +- a fifth with the switch on, about
+* +-3 octaves with it off. The service manual's text for this board (2.18) says only that
+* SW2 "interrupts the keyboard, modulation, external, and pitchbend voltage on oscillator
+* three and also increases the range" of its control; the figures are the later board's
+* (2.3: "+- a musical fifth", "+- 3 octaves"), and 5.36 checks this board's wide range (LO,
+* the pot at minimum: a click every 2 to 5 s).
+*   tune  9A, the pot's wiper             ctl  10A (open, or the wiper when the switch is off)
+*   sum   oscillator 3's summing junction (IC6 pin 2, 15A)
+.subckt mm_osc3ctl tune ctl sum vp vn
+r181  tune inv 51k                  ; R181 51K (56K before modification 8.2)
+r180  ctl inv 15k                   ; R180 15K
+r162  vp inv 3.01k                  ; R162 3.01K 1% (modification 8.2, kit 94-001; the drawing: 3K)
+r170  out inv 15k                   ; R170 15K 1%
+r150  vp pos8 1k                    ; R150 1K
+r155  pos8 0 3.01k                  ; R155 3.01K 1%
+xic8  pos8 inv vp vn out ua741      ; IC8 741
+r143  out sum 51.1k                 ; R143 51.1K 1%
+.ends mm_osc3ctl
+
+* --- oscillator 3's reverse sawtooth: Q37 -------------------------------------------------
+* A shunt-feedback inverter on oscillator 3's sawtooth output (13B, through R171 33K): R175
+* 68K from collector to base, R182 390K to -10 V, emitter at GND; its collector (R165 2.2K
+* from +10 V through R164 330, decoupled by C10 2.2 uF) level-shifted through R172 7.5K
+* against R176 18K to -10 V to the output 7B ("+1.7 to -1.7 V loaded"). The drawing labels
+* the 7.5K "R175"; Table 7-5 has R172 7.5K and R175 68K.
+*   saw   13B, oscillator 3's sawtooth     rev  7B, the reverse sawtooth
+.subckt mm_revsaw saw rev vp vn
+r164  vp na 330                     ; R164 330
+c10   na 0 2.2u                     ; C10 2.2 uF / 50 V
+r165  na c37 2.2k                   ; R165 2.2K
+r175  c37 b37 68k                   ; R175 68K
+r171  saw b37 33k                   ; R171 33K
+r182  b37 vn 390k                   ; R182 390K
+q37   c37 b37 0 Q2N3392             ; Q37 2N3392
+r172  c37 rev 7.5k                  ; R172 7.5K
+r176  rev vn 18k                    ; R176 18K
+.ends mm_revsaw

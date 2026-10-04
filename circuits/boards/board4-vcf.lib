@@ -1,0 +1,82 @@
+* Minimoog board No. 4: circuit No. 6, the voltage controlled filter.
+*
+* Source drawing: service manual Figure 9-11 (S-F911), 300 dpi scan fantasyjackpalance.com
+* 911-filt-print-circ-schem.gif; reference designators are Figure 9-11's. The 1971
+* R. A. Moog drawing 1446 (rev C, 6/14/71; S-RAM) has the same circuit under other
+* designators, without the scale trimpot R49/R70 and with 150 ohm for R76
+* (docs/circuit/board4.md).
+*
+* Ports:
+*   ain     pin 4, the audio input node (the mixer bus), into C27
+*   ctl     pin 5, the control node: the front panel's summing resistors meet here
+*   amt     pin 16, the AMOUNT OF CONTOUR pot's wiper, into R74
+*   emo     pin 7, the emphasis output (to the EMPHASIS pot's top)
+*   emi     pin 6, the emphasis input (from the EMPHASIS pot's wiper)
+*   out     the filter's output, Q7/Q8's collectors (to the VCA's R2)
+*   vp vn   +10 V and -10 V
+* Parameters: r39 (RANGE trimpot, wiper position from +10, 0..1), r49 (SCALE trimpot,
+* ohms in circuit), r73 (REGEN CAL trimpot, wiper position from R76, 0..1), r76 (330 on
+* Figure 9-11, 150 on drawing 1446).
+.subckt mm_vcf ain ctl amt emo emi out vp vn params: r39=0.5 r49=250 r73=0.5 r76=330
+
+* --- control node and exponential converter (Q26 TIS93, Q28 TIS92, matched) -----------
+r74   amt ctl 47k                   ; R74 47K: amount of contour into the control node
+r49   ctl n49 {max(r49,1e-3)}       ; R49 500 ohm SCALE trimpot (rheostat)
+r70   n49 0 1.8k                    ; R70 1.8K
+c18   ctl 0 100p                    ; C18 100pF
+rr39a vp n39 {max(10k*r39,1e-3)}    ; R39 10K RANGE trimpot, +10 V end
+rr39b n39 0 {max(10k*(1-r39),1e-3)} ; R39 10K RANGE trimpot, ground end
+r46   n39 e26 68k                   ; R46 68K: current into Q26's emitter
+q26   c26 ctl e26 QTIS93            ; Q26 TIS93: base = control node
+r45   c26 vn 330                    ; R45 330: Q26's collector to -10 V
+q28   tail e26 0 QTIS92             ; Q28 TIS92: base on Q26's emitter, emitter at GND
+r60   ie tail 680                   ; R60 680: the ladder's tail to Q28
+
+* --- bias chain and input pair ---------------------------------------------------------
+r4    vp b1 220                     ; R4 220 (Q2/Q3 bases)
+r16   b1 b2 150                     ; R16 150 (Q10/Q11 bases)
+r32   b2 b3 150                     ; R32 150 (Q19/Q20 bases)
+r41   b3 b4 150                     ; R41 150 (Q23/Q24 bases)
+r52   b4 b5 150                     ; R52 150
+r67   b5 0 200                      ; R67 200
+c24   b5 0 220u                     ; C24 220 uF
+r54   b5 in29 470                   ; R54 470: Q29's base bias
+c27   ain in29 10u                  ; C27 10 uF: the audio input
+q29   la in29 ie QTIS97             ; Q29 TIS97 (matched pair Q29/Q30)
+q30   lb in30 ie QTIS97             ; Q30 TIS97
+rr76  b5 n76 {r76}                  ; R76 330
+rr73a n76 in30 {max(1k*r73,1e-3)}   ; R73 1K REGEN CAL, R76 side of the wiper (in30)
+rr73b in30 emi {max(1k*(1-r73),1e-3)} ; R73 1K REGEN CAL, emphasis side
+
+* --- the ladder: four pairs, a .068 uF capacitor across each pair's emitters -----------
+q23   ma b4 la QTIS97               ; Q23
+q24   mb b4 lb QTIS97               ; Q24
+c16   la lb 0.068u                  ; C16 .068
+q19   na b3 ma QTIS97               ; Q19
+q20   nb b3 mb QTIS97               ; Q20
+c11   ma mb 0.068u                  ; C11 .068
+q10   oa b2 na QTIS97               ; Q10
+q11   ob b2 nb QTIS97               ; Q11
+c7    na nb 0.068u                  ; C7 .068
+q2    vp b1 oa QTIS97               ; Q2: collector at +10
+q3    vp b1 ob QTIS97               ; Q3: collector at +10
+c3    oa ob 0.068u                  ; C3 .068: the output is taken across it
+
+* --- output buffer: gain recovery amplifier --------------------------------------------
+c5    oa b8 0.22u                   ; C5 .22
+r31   b8 0 47k                      ; R31 47K
+c1    ob b6 0.22u                   ; C1 .22
+r38   b6 0 47k                      ; R38 47K
+q8    out b8 e8 QTIS97              ; Q8 TIS97 follower; collector on the output node
+q6    vp b6 e6 QTIS97               ; Q6 TIS97 follower; collector at +10
+r24   e8 vn 220k                    ; R24 220K
+r20   e6 vn 100k                    ; R20 100K
+q7    out e8 e57 QTIS97             ; Q7 TIS97
+q5    vp e6 e57 QTIS97              ; Q5 TIS97: collector at +10
+r26   e57 vn 1k                     ; R26 1K: the pair's tail
+r3    nu out 1k                     ; R3 1K: the output's load
+r7    nt nu 180                     ; R7 180
+r6    vp nt 47                      ; R6 47
+c9    nt 0 100u                     ; C9 100 uF
+c10   nu emo 10u                    ; C10 10 uF: the emphasis signal out
+.ends mm_vcf

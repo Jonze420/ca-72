@@ -1,0 +1,65 @@
+* Minimoog board No. 3: circuit No. 3, the noise generator (white, pink and red noise).
+*
+* Source drawing: service manual Figure 9-8 (S-F98); reference designators are Figure 9-8's.
+* The circuit runs between +10 V (pin 1) and -10 V (pins 17, 18).
+*
+* The noise source is Q15's emitter-base junction in reverse breakdown ("selected,
+* burned-in and retested", 2.5), fed from +10 V through R47 75K (decoupled by C25 10 uF)
+* and R67 470K, its collector open. Its noise is not in any netlist: here the junction is a
+* voltage source `src` (its breakdown voltage, and the noise as its AC value) behind its
+* small-signal resistance `rd` (docs/circuit/board3.md). Q12 amplifies it (R26, NOISE LEVEL,
+* the factory's trim for "-5dB", sets its gain), Q4 follows: white noise out through C18.
+* R16 into two series RC branches to -10 V (C3 with R8, C2 with R13) filters that into Q3
+* (gain R3/R1): pink noise out through C20.
+* R12 and C7 filter that into Q6 (C22 on its collector): red noise out through C28, R59.
+*
+* Ports: white (pin 5), pink (pin 6), red (pin 2), p10 (+10 V), n10 (-10 V).
+* Parameters: r26 (NOISE LEVEL, ohm in circuit, 0..2.5K), vbr (the junction's breakdown
+* voltage), rd (its small-signal resistance), acn (the noise source's AC value).
+.subckt mm_noise white pink red p10 n10 params: r26=1250 vbr=7.5 rd=1k acn=1
+* --- the noise source ----------------------------------------------------------------------
+r47   p10 nx 75k                    ; R47 75K
+c25   nx n10 10u                    ; C25 10 uF
+r67   nx e15 470k                   ; R67 470K
+vq15  jq n10 dc {vbr} ac {acn}      ; Q15's emitter-base junction in breakdown (base at -10 V)
+rq15  jq e15 {rd}
+* --- Q12: amplifier; Q4: follower ----------------------------------------------------------
+c12   e15 b12 5.6u                  ; C12 5.6 uF
+r29   b12 c12n 4.7meg               ; R29 4.7M
+r17   p10 c12n 100k                 ; R17 100K
+c11   c12n n10 100p                 ; C11 100 pF
+q12   c12n b12 e12 Q2N3392          ; Q12 2N3392
+r26   e12 n10 {max(r26,1e-3)}       ; R26 2.5K NOISE LEVEL (a rheostat)
+q4    c4 c12n e4 Q2N3392            ; Q4 2N3392
+r9    p10 c4 470                    ; R9 470
+r19   e4 n10 3.3k                   ; R19 3.3K
+c5    c12n e4 100p                  ; C5 100 pF
+c18   e4 white 0.15u                ; C18 .15 uF: white noise out
+* --- the pink filter and Q3 ---------------------------------------------------------------
+r16   e4 p1 10k                     ; R16 10K
+c3    p1 n3 0.12u                   ; C3 .12 uF, in series with
+r8    n3 n10 3.3k                   ; R8 3.3K
+c2    p1 n2 0.033u                  ; C2 .033 uF
+r13   n2 n10 220                    ; R13 220
+c1    p1 b3 2.5u                    ; C1 2.5 uF
+r7    b3 y3 560k                    ; R7 560K
+r6    y3 c3n 560k                   ; R6 560K
+c4    y3 n10 2.5u                   ; C4 2.5 uF
+q3    c3n b3 e3 Q2N3392             ; Q3 2N3392
+r3    p10 c3n 3.3k                  ; R3 3.3K
+r1    e3 n10 120                    ; R1 120
+c20   c3n pink 2.5u                 ; C20 2.5 uF: pink noise out
+* --- the red filter and Q6 ----------------------------------------------------------------
+r12   c3n r1n 10k                   ; R12 10K
+c7    r1n n10 0.15u                 ; C7 .15 uF
+c8    r1n b6 2.5u                   ; C8 2.5 uF
+r28   b6 z6 2.2meg                  ; R28 2.2M
+r23   z6 c6n 2.2meg                 ; R23 2.2M
+c10   z6 n10 0.1u                   ; C10 .1 uF
+q6    c6n b6 e6 Q2N3392             ; Q6 2N3392
+r24   p10 c6n 10k                   ; R24 10K
+r15   e6 n10 3.9k                   ; R15 3.9K
+c22   c6n n10 0.15u                 ; C22 .15 uF
+c28   c6n red 10u                   ; C28 10 uF: red noise out
+r59   red 0 100k                    ; R59 100K
+.ends mm_noise

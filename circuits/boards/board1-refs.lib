@@ -1,0 +1,24 @@
+* Minimoog oscillator board No. 1 (old board, serial numbers below 10175): the references
+* shared by the three oscillators. Source: Figure 9-3 (S-F93), checked against Table 7-5.
+*
+* Ports:
+*   vp vn   +10 V and -10 V rails
+*   m5out   -5 V out, pin 17A: Q38's emitter, to the range switches through the harness
+*   m5sense -5 V sense, pin 18A: sensed at the range switches, into IC9 through R178
+*   m4      the "-4V" line (R166/R174 divider of -10 V, filtered by C14)
+.subckt mm_refs vp vn m5out m5sense m4
+xic9  n9p n9n 0 vn ic9o ua741       ; IC9 741: + pin 3, - pin 2, V+ = GND, V- = -10 V
+r177  0 n9p 10k                     ; R177 10K 1%
+r173  n9p vn 10k                    ; R173 10K 1%
+c13   n9p 0 27u                     ; C13 27 uF tantalum
+r178  m5sense n9n 5.1k              ; R178 5.1K
+r167  ic9o b38 4.7k                 ; R167 4.7K
+q38   0 b38 m5out Q2N3392           ; Q38 2N3392 emitter follower, collector at GND
+r166  vn m4 6.2k                    ; R166 6.2K
+r174  m4 0 3.9k                     ; R174 3.9K
+c14   m4 0 0.12u                    ; C14 .12 uF
+.ends mm_refs
+
+* The range switches' shared string (on the front panel) is not transcribed: its resistor
+* values for the old board are not established (docs/circuit/board1.md, B1-6). Benches
+* apply the range switch's tap voltage as an ideal source (docs/circuit/assumptions.md A3).

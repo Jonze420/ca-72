@@ -1,0 +1,37 @@
+* Minimoog board No. 4: circuit No. 13, the A-440 reference oscillator.
+*
+* Source drawing: service manual Figure 9-11 (S-F911); reference designators are Figure
+* 9-11's. A Wien bridge oscillator (service manual 2.11): Q22 (TIS97, R25 75K collector, R47
+* 33.2K emitter; its base biased by R50 82K from the rail) amplifies; Q9 (2N4058, R15 3.32K
+* emitter from the rail, R17 4.75K collector to ground) inverts; the bridge runs from Q9's
+* collector through C13 (with the trim C17) and R68 (1K wirewound rheostat, A-440 ADJ.)
+* with R71 4.75K to Q22's base, which R55 16.9K with C19 (and the trim C25) holds to
+* ground. CR3, CR4 (anti-parallel), C12 and R27 limit the amplitude at Q22's collector.
+* Q4 (2N3392, its collector through R1, "680K 22M SELECTED") takes Q9's emitter to the
+* output across R5 22K. SW18 (A-440) connects the rail (pin 14) to +10 V.
+*
+* Ports: rail (pin 14), out (Q4's emitter, to R40 and C8 on circuit No. 7).
+* Parameters: a68 (R68's wiper, 0..1), cs17, cs25 (the selected C17, C25, 600-1200 pF), rs1 (R1).
+.subckt mm_a440 rail out params: a68=0.5 cs17=900p cs25=900p rs1=680k
+r50   rail b22 82k                  ; R50 82K
+r27   rail d 470k                   ; R27 470K
+dcr4  d e DSG3246                   ; CR4 SG3246
+dcr3  e d DSG3246                   ; CR3 SG3246
+c12   e c22 0.1u                    ; C12 .1 uF
+r25   rail c22 75k                  ; R25 75K 1%
+q22   c22 b22 e22 QTIS97            ; Q22 TIS97
+r47   e22 0 33.2k                   ; R47 33.2K 1%
+r55   b22 0 16.9k                   ; R55 16.9K 1%
+c19   b22 0 0.030u                  ; C19 .030 uF 2.5%
+c25   b22 0 {cs25}                  ; C25 (selected)
+r71   b22 n71 4.75k                 ; R71 4.75K 1%
+r68   n71 w {max(1000*a68,1e-3)}    ; R68 1K wirewound, A-440 ADJ. (a rheostat)
+c13   w c9 0.030u                   ; C13 .030 uF 2.5%
+c17   w c9 {cs17}                    ; C17 (selected)
+r15   rail e9 3.32k                 ; R15 3.32K 1%
+q9    c9 c22 e9 Q2N4058             ; Q9 2N4058
+r17   c9 0 4.75k                    ; R17 4.75K 1%
+r1    rail c4 {rs1}                  ; R1 680K (selected)
+q4    c4 e9 out Q2N3392             ; Q4 2N3392
+r5    out 0 22k                     ; R5 22K
+.ends mm_a440

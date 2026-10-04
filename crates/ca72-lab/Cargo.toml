@@ -1,0 +1,30 @@
+[package]
+name = "ca72-lab"
+description = "The CA-72's circuit lab: ngspice benches of the boards transcribed from the Minimoog Model D's service documents, the factory calibration, and reference measurements for the real-time models"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[features]
+# `ca72-lab perf` reports where the voice's time goes.
+profile = ["ca72/profile"]
+# `ca72-lab perf record` renders twins (see `ca72::ulp`).
+twins = ["ca72/twins"]
+# `ca72-lab worst` counts the elementary functions' calls a sample by their call site.
+count = ["ca72/count"]
+
+[dependencies]
+ca72.workspace = true
+ca72-analysis.workspace = true
+ca72-rt.workspace = true
+ca72-spice.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
+
+[lints]
+workspace = true

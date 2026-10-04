@@ -1,0 +1,12 @@
+{
+  "panel": {
+    "osc1_range": "16", "osc1_waveform": "sawtooth", "osc1_volume": 0.8,
+    "cutoff": 0.3, "emphasis": 0.4, "contour_amount": 0.3,
+    "keyboard_control_1": true, "keyboard_control_2": false,
+    "filter_attack": 0.0, "filter_decay": 0.35, "filter_sustain": 0.2,
+    "loudness_attack": 0.0, "loudness_decay": 0.3, "loudness_sustain": 0.8, "decay": true
+  },
+  "notes": [[0.2, 0.25, 45], [0.5, 0.25, 45], [0.8, 0.2, 57], [1.1, 0.25, 45],
+            [1.4, 0.2, 48], [1.7, 0.4, 50], [2.3, 0.8, 45]],
+  "seconds": 4.0
+}

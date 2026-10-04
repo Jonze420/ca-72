@@ -1,0 +1,75 @@
+* Minimoog board No. 3: circuit No. 10, the dual voltage regulator (+10 V and -10 V).
+*
+* Source drawing: service manual Figure 9-8 (S-F98); reference designators are Figure 9-8's.
+* Transcribed to measure the rails' output impedance and ripple rejection, the grounds for
+* modelling them as ideal (docs/circuit/assumptions.md A1; docs/circuit/board3.md).
+*
+* +10 V: Q1 (MPS-U55) passes from +UNREG (pin 22, the rectifier's +20 V). CR3 (1N821,
+* 6.2 V at 7.5 mA; R44 511 sets its current) hangs the reference 6.2 V under the +10 V
+* sense line, on Q9's base; R39, R21 (25 ohm, the +10 V trim) and R34 divide the sense
+* line onto Q8's base. The pair Q9/Q8 (2N4058, heat sunk together) runs from the output
+* through R31; Q9's collector (R27 to GND) drives Q5 through R20, and Q5 (C6 its Miller
+* capacitor) pulls Q1's base through R10. Q2 is the start-up: with the output down it is
+* off and R5, R14 turn Q5 on; once the output is up it takes R5's current.
+* -10 V: Q20 (MPS-U05) passes from -UNREG (pin 21, -20 V). R65, R58 (10 ohm, the -10 V
+* trim) and R52 divide between the two sense lines; the pair Q13/Q14 (TIS-97, heat sunk
+* together; R43 their tail from -10 V) holds that point at the ground sense line, so -10
+* V tracks +10 V. Q13's collector (R51 to +10 V) drives Q19 through R48; Q19 (from +10 V
+* through R55; C23 its Miller capacitor) drives Q20's base through R61.
+* R45 and R66 (10 ohm) join each sense line to its output at the board; here the sense
+* lines are wired to the outputs through `rs` ohm each (the harness), the ground sense to
+* ground.
+*
+* Ports: unp (+UNREG), unn (-UNREG), outp (+10 V), outn (-10 V).
+* Parameters: a21, a58 (the trims' wipers, 0..1 from the divider's top), rs.
+.subckt mm_regulator unp unn outp outn params: a21=0.5 a58=0.5 rs=1m
+* --- +10 V --------------------------------------------------------------------------------
+q1    outp q1b unp QMPSU55          ; Q1 MPS-U55 (pass)
+r4    unp q1b 820                   ; R4 820
+r10   q1b q5c 820                   ; R10 820
+q5    q5c q5b q5e QTIS92            ; Q5 TIS-92
+r18   q5e 0 33                      ; R18 33
+c6    q5c q5b 100p                  ; C6 100 pF
+r5    unp s2 12k                    ; R5 12K
+q2    s2 q2b 0 QTIS92               ; Q2 TIS-92 (start-up)
+r2    outp q2b 10k                  ; R2 10K
+r11   q2b 0 820                     ; R11 820
+r14   s2 q5b 12k                    ; R14 12K
+r45   sp outp 10                    ; R45 10
+rsp   sp outp {rs}                  ; the +10 V sense line's wiring
+dcr3  ref sp D1N821                 ; CR3 1N821
+r44   ref 0 511                     ; R44 511 1%
+q9    q9c ref em Q2N4058            ; Q9 2N4058
+q8    0 fb em Q2N4058               ; Q8 2N4058
+r31   outp em 560                   ; R31 560
+c30   ref fb 47p                    ; C30 47 pF
+c13   fb 0 0.01u                    ; C13 .01 uF
+r39   sp d21a 590                   ; R39 590 1%
+r21a  d21a fb {max(25*a21,1e-3)}    ; R21 25 ohm wirewound (the +10 V trim)
+r21b  fb d21b {max(25*(1-a21),1e-3)}
+r34   d21b 0 332                    ; R34 332 1%
+r27   q9c 0 300                     ; R27 300
+r20   q9c q5b 820                   ; R20 820
+c24   outp 0 80u                    ; C24 80 uF
+* --- -10 V --------------------------------------------------------------------------------
+q20   outn q20b unn QMPSU05         ; Q20 MPS-U05 (pass)
+r63   unn q20b 820                  ; R63 820
+r61   q20b q19c 820                 ; R61 820
+q19   q19c q19b q19e QTIS93         ; Q19 TIS-93
+r55   q19e outp 33                  ; R55 33
+c23   q19c q19b 100p                ; C23 100 pF
+r48   q19b nq13 820                 ; R48 820
+r51   nq13 outp 300                 ; R51 300
+q13   nq13 w58 et QTIS97            ; Q13 TIS-97
+q14   outp 0 et QTIS97              ; Q14 TIS-97 (base: the ground sense line)
+r43   outn et 910                   ; R43 910
+r65   sp d58a 909                   ; R65 909 1%
+r58a  d58a w58 {max(10*a58,1e-3)}   ; R58 10 ohm wirewound (the -10 V trim)
+r58b  w58 d58b {max(10*(1-a58),1e-3)}
+r52   d58b sn 909                   ; R52 909 1%
+c29   w58 0 47p                     ; C29 47 pF (to the ground sense line)
+c27   w58 sn 0.1u                   ; C27 .1 uF
+r66   sn outn 10                    ; R66 10
+rsn   sn outn {rs}                  ; the -10 V sense line's wiring
+c26   0 outn 80u                    ; C26 80 uF
+.ends mm_regulator

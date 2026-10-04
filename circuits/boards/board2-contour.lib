@@ -1,0 +1,113 @@
+* Minimoog board No. 2: circuit No. 8, the dual contour generator (filter and loudness
+* contours, trigger section, decoupling).
+*
+* Source drawing: service manual Figure 9-7 (S-F97), 300 dpi scan fantasyjackpalance.com
+* 907-cont-gen-key-schem.gif; reference designators are Figure 9-7's (the board's R16 10K
+* is not the front panel's DECAY pot R16). Operation: service manual section 2.10.
+*
+* Ports (board pins):
+*   kbtrig  20  the keyboard's trigger bus (+10 V while a key is held, else pulled low)
+*   strig   19  EXT. S-TRIG (a short to ground triggers)
+*   vtrig   21, 22  Q12's collector: +9.3 V while triggered, 0.2 V at rest ("V-trig");
+*               through the left hand controller it drives the final decay (pins 6, 15)
+*               and, with DECAY off, the dump (pins 2, 8) through R1401 1.5K
+*   f_att   14  to the filter ATTACK pot     l_att   18  to the loudness ATTACK pot
+*   f_cap   10  the ATTACK and DECAY wipers  l_cap    9  (the timing capacitor's node)
+*   f_dec   13  to the filter DECAY pot      l_dec   17  to the loudness DECAY pot
+*   f_dump   2  CR7, to the DECAY switch     l_dump   8  CR4, to the DECAY switch
+*   f_fin    6  CR2, to pin 22 through the LHC  l_fin 15  CR9, likewise
+*   f_sus   12  the filter SUSTAIN wiper     l_sus   16  the loudness SUSTAIN wiper
+*   f_out   11  filter contour output        l_out    7  loudness contour output
+*   p15 4 (+15 V raw), p10 1 (+10 V), n10 3 (-10 V); ground is node 0 (pin 5).
+.subckt mm_contour2 kbtrig strig vtrig f_att f_cap f_dec f_dump f_fin f_sus f_out
++ l_att l_cap l_dec l_dump l_fin l_sus l_out p15 p10 n10
+
+* --- decoupling: +9.3 V for both generators (the timing capacitors' charging spikes) ----
+r63   p15 c26 15                    ; R63 15 ohm
+r62   p10 b26 330                   ; R62 330 ohm
+q26   c26 b26 p93 Q2N3415           ; Q26 2N3415: emitter is the +9.3 V rail (X)
+
+* --- trigger section ---------------------------------------------------------------------
+r37   p93 rst 10k                   ; R37 10K: the reset line (Q20's collector)
+dcr10  kbtrig n60 D1N34A             ; CR10 1N34A
+r60   n60 n7 100k                   ; R60 100K
+c7    n7 0 0.1u                     ; C7 .1 uF
+r55   n7 b20 47k                    ; R55 47K
+q20   rst b20 0 Q2N3392             ; Q20 2N3392
+r49   strig rst 220                 ; R49 220: EXT. S-TRIG pulls the reset line down
+r19   rst b12 10k                   ; R19 10K
+q12   vtrig b12 0 Q2N3392           ; Q12 2N3392: V-trig
+r32   p93 set 10k                   ; R32 10K: the set line
+r23   set vtrig 3.3k                ; R23 3.3K: Q12 holds the set line low at rest
+
+* --- filter contour section ----------------------------------------------------------------
+r26   set f_n1 10k                  ; R26 10K
+c1    f_n1 f_b1 0.01u               ; C1 .01 uF: the set step into Q1
+q1    f_c1 f_b1 0 Q2N3392           ; Q1 2N3392 (flip-flop)
+q4    f_c4 f_b4 0 Q2N3392           ; Q4 2N3392 (flip-flop)
+r3    f_c4 f_b1 10k                 ; R3 10K
+r14   f_c1 f_b4 33k                 ; R14 33K
+r4    p93 f_c4 10k                  ; R4 10K
+r6    p93 f_b5 560                  ; R6 560
+r5    f_b5 f_c1 3.3k                ; R5 3.3K
+dcr3   f_pk f_b4 D1N34A              ; CR3 1N34A: resets at the attack's peak
+r29   n10 f_pk 16.9k                ; R29 16.9K 1%
+r33   f_pk f_out 5.6k               ; R33 5.6K
+r35   rst f_r35 10k                 ; R35 10K
+dcr1   f_r35 f_b4 D1N34A             ; CR1 1N34A: held reset while no key is down
+q5    f_c5 f_b5 p93 QTIS93          ; Q5 TIS93: the attack switch
+r7    f_c5 f_att 100                ; R7 100
+c5    f_cap 0 10u                   ; C5 10 uF: the timing capacitor
+dcr7   f_cap f_dump D1N4004          ; CR7 1N4004: the dump (DECAY off)
+q6    p93 f_c1 f_e6 Q2N3392         ; Q6 2N3392
+r8    f_e6 n10 10k                  ; R8 10K
+r9    f_e6 f_b7 4.7k                ; R9 4.7K
+q7    f_dec f_b7 f_e7 Q2N3392       ; Q7 2N3392: the decay switch
+r10   p93 f_e7 27k                  ; R10 27K
+q8    f_c8 f_b8 f_e7 QTIS93         ; Q8 TIS93: the sustain driver (PNP follower)
+r11   f_c8 0 100                    ; R11 100
+r13   f_sus f_b8 4.7k               ; R13 4.7K
+r17   f_b8 n10 150k                 ; R17 150K
+r1    f_b8 0 3k                     ; R1 3K
+dcr2   f_e7 f_fin D1N4004            ; CR2 1N4004: the final decay (sustain removed)
+c8    p93 0 100p                    ; C8 100 pF
+r48   f_cap f_b22 10k               ; R48 10K
+q22   f_b21 f_b22 f_out Q2N3392     ; Q22 2N3392 (follower)
+q21   f_out f_b21 f_e21 QTIS93      ; Q21 TIS93 (follower)
+r50   p93 f_e21 560                 ; R50 560
+c11   f_b21 f_e21 47p               ; C11 47 pF (drawn; C12 500 pF across R50 is not)
+
+* --- loudness contour section -------------------------------------------------------------
+r28   set l_n1 10k                  ; R28 10K
+c4    l_n1 l_b25 0.01u              ; C4 .01 uF
+q25   l_c25 l_b25 0 Q2N3392         ; Q25 2N3392 (flip-flop)
+q15   l_c15 l_b15 0 Q2N3392         ; Q15 2N3392 (flip-flop)
+r38   l_c15 l_b25 10k               ; R38 10K
+r56   l_c25 l_b15 33k               ; R56 33K
+r39   p93 l_c15 10k                 ; R39 10K
+r41   p93 l_b16 560                 ; R41 560
+r40   l_b16 l_c25 3.3k              ; R40 3.3K
+dcr6   l_pk l_b15 D1N34A             ; CR6 1N34A
+r27   n10 l_pk 16.9k                ; R27 16.9K 1%
+r24   l_pk l_out 6.8k               ; R24 6.8K
+r36   rst l_r36 10k                 ; R36 10K
+dcr8   l_r36 l_b15 D1N34A            ; CR8 1N34A
+q16   l_c16 l_b16 p93 QTIS93        ; Q16 TIS93: the attack switch
+r42   l_c16 l_att 100               ; R42 100
+c2    l_cap 0 10u                   ; C2 10 uF: the timing capacitor
+dcr4   l_cap l_dump D1N4004          ; CR4 1N4004
+q17   p93 l_c25 l_e17 Q2N3392       ; Q17 2N3392
+r43   l_e17 n10 10k                 ; R43 10K
+r44   l_e17 l_b18 4.7k              ; R44 4.7K
+q18   l_dec l_b18 l_e18 Q2N3392     ; Q18 2N3392: the decay switch
+r45   p93 l_e18 27k                 ; R45 27K
+q19   l_c19 l_b19 l_e18 QTIS93      ; Q19 TIS93: the sustain driver
+r46   l_c19 0 100                   ; R46 100
+r57   l_sus l_b19 4.7k              ; R57 4.7K
+r47   l_b19 0 4.7k                  ; 4.7K to ground (labelled R41 on Figure 9-7: B2-1)
+dcr9   l_e18 l_fin D1N4004           ; CR9 1N4004
+r16   l_cap l_b3 10k                ; R16 10K
+q3    l_c3 l_b3 l_b2 Q2N3392        ; Q3 2N3392 (Darlington follower)
+q2    l_c3 l_b2 l_out Q2N3392       ; Q2 2N3392
+r15   p93 l_c3 560                  ; R15 560
+.ends mm_contour2

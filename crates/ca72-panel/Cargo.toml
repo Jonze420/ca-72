@@ -1,0 +1,15 @@
+[package]
+name = "ca72-panel"
+description = "The CA-72's front panel, drawn: its art as SVG, rendered with resvg"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+resvg = { version = "0.45", default-features = false, features = ["text"] }
+rustybuzz = "0.20"
+
+[lints]
+workspace = true

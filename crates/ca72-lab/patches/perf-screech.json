@@ -1,0 +1,9 @@
+{
+  "panel": {"osc1_on": false, "osc3_on": true, "osc3_waveform": "reverse", "osc3_volume": 0.6,
+            "cutoff": 0.55, "emphasis": 0.95, "keyboard_control_1": true, "keyboard_control_2": true,
+            "contour_amount": 0.4, "filter_attack": 0.3, "filter_decay": 0.5, "filter_sustain": 0.3,
+            "loudness_sustain": 0.9, "glide": 0.3, "glide_on": true},
+  "notes": [[0.1, 0.9, 45], [1.0, 0.9, 57], [2.0, 0.9, 64], [3.0, 0.8, 50]],
+  "moves": [[0.5, "pitch_wheel", 0.5], [0.8, "pitch_wheel", 0.0]],
+  "seconds": 4.0
+}

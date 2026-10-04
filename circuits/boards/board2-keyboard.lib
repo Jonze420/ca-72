@@ -1,0 +1,55 @@
+* Minimoog board No. 2: circuit No. 1, the keyboard circuit (the key string's current
+* source, the pitch bus's hold, the glide and the output to the oscillators and filter).
+*
+* Source drawing: service manual Figure 9-7 (S-F97); reference designators are Figure
+* 9-7's (the board's R2 330 is not the front panel's GLIDE pot R2 5M).
+*
+* Ports (board pins):
+*   kcur   10  the current source's output: 8.33 mA (Figure 9-17: 8.48 mA) into the 43
+*              resistor string (10 ohm 1% each; its low end grounded)
+*   bus     9  the keyboard's pitch bus (the string's voltage where the pitch bar touches)
+*   trig    6  the keyboard's trigger bus (+10 V while a key is held)
+*   gout    8  to the GLIDE control and switch     gin  7  from them
+*   out     4, 5  to the oscillators and the filter
+*   p10 1 (+10 V), n10 3 (-10 V); ground is node 0 (pin 2).
+.subckt mm_keyboard kcur bus trig gout gin out p10 n10
+
+* --- the key string's current source: Q9 (PNP) and Q11 (NPN), matched -------------------
+r1    p10 e9 590                    ; R1 590 1%
+q9    kcur b9 e9 QTIS93             ; Q9 TIS93
+q11   p10 b11 b9 QTIS92             ; Q11 TIS92
+r20   p10 b11 1k                    ; R20 1K 1%
+r22   b11 0 1k                      ; R22 1K 1%
+r25   b9 0 1k                       ; R25 1K
+c3    b9 0 0.1u                     ; C3 .1 uF
+
+* --- the pitch bus: held on C9 while no key is down ---------------------------------------
+c9    bus 0 0.33u                   ; C9 .33 uF
+r53   p10 bus 4.7meg                ; R53 4.7M
+
+* --- the amplifier: Q23/Q14 (matched) and Q24, its loop closed from the output ---------
+q23   c23 bus e23 Q2N3392           ; Q23 2N3392
+q14   c14 fb e23 Q2N3392            ; Q14 2N3392
+r52   e23 n10 43k                   ; R52 43K
+r58   p10 c23 6.2k                  ; R58 6.2K
+r51   p10 c14 560                   ; R51 560
+q24   ko c23 p10 Q2N4058            ; Q24 2N4058
+r59   p10 ko 3.9k                   ; R59 3.9K
+r54   ko n10 1.5k                   ; R54 1.5K
+r61   ko gout 330                   ; R61 330: to the GLIDE control
+
+* --- glide: Q13 connects C6 while a key is held; Q10 follows C6 -------------------------
+j13   c6 g13 gin J2N4303            ; Q13 2N4303 ("glide up")
+r64   g13 gn 100k                   ; R64 100K
+r31   gin gn 22meg                  ; R31 22M
+dcr5   gn t2 D1N4004                 ; CR5 1N4004: pinches Q13 off with no key down
+r65   trig t2 5.1k                  ; R65 5.1K
+c13   t2 n10 0.01u                  ; C13 .01 uF
+r34   t2 n10 100k                   ; R34 100K
+c6    c6 0 1u                       ; C6 1 uF: the glide capacitor
+r21   c6 g10 10k                    ; R21 10K
+j10   d10 g10 out J2N4303           ; Q10 2N4303 ("glide down"): source follower
+r2    p10 d10 330                   ; R2 330
+r18   out n10 3.9k                  ; R18 3.9K
+r30   out fb 10k                    ; R30 10K: the loop
+.ends mm_keyboard

@@ -1,0 +1,77 @@
+[workspace]
+resolver = "3"
+members = ["crates/*", "xtask"]
+default-members = ["crates/*"]
+exclude = ["third_party"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.97"
+license = "GPL-3.0-or-later"
+publish = false
+repository = "https://github.com/idlefoundry/ca-72"
+
+[workspace.dependencies]
+ca72 = { path = "crates/ca72" }
+ca72-analysis = { path = "crates/ca72-analysis" }
+ca72-rt = { path = "crates/ca72-rt" }
+ca72-spice = { path = "crates/ca72-spice" }
+
+# The plug-in framework (ISC; its VST3 bindings are GPL-3.0): its commit below with eight
+# fixes, to state loading, buses, resizing and the processing mode
+# (third_party/nih-plug/PATCHES.md).
+nih_plug = { path = "third_party/nih-plug" }
+nih_plug_xtask = { git = "https://github.com/robbert-vdh/nih-plug.git", rev = "de421011f41a6d10fc8c7a6084e4f4dee0143683" }
+
+libc = "0.2"
+libm = "0.2"
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1", features = ["float_roundtrip", "preserve_order"] }
+tempfile = "3.27"
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_System_Threading"] }
+
+[workspace.lints.rust]
+unsafe_code = "deny"
+missing_debug_implementations = "warn"
+
+[workspace.lints.clippy]
+dbg_macro = "warn"
+todo = "warn"
+undocumented_unsafe_blocks = "warn"
+unwrap_used = "warn"
+
+# The real-time models run seconds of audio in their tests (their calibrations among
+# them): unoptimised, the debug suite takes hours.
+[profile.dev.package.ca72]
+opt-level = 3
+
+[profile.dev.package.libm]
+opt-level = 3
+
+[profile.dev.package.ca72-analysis]
+opt-level = 3
+
+# The editor draws its panel in software: unoptimised, a frame takes seconds.
+[profile.dev.package.resvg]
+opt-level = 3
+
+[profile.dev.package.usvg]
+opt-level = 3
+
+[profile.dev.package.tiny-skia]
+opt-level = 3
+
+[profile.dev.package.tiny-skia-path]
+opt-level = 3
+
+[profile.release]
+debug = 1
+
+# The plug-in's bundles (`cargo xtask bundle ca72-plugin --profile bundle`): link-time
+# optimised, about 3 % faster, the same samples (decisions.md R13). The tests and the
+# measurements run by hand (`--release`) do without it: it links far slower.
+[profile.bundle]
+inherits = "release"
+lto = "fat"
+codegen-units = 1

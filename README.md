@@ -8,7 +8,9 @@ was transcribed from the instrument's service documents into SPICE netlists and 
 in ngspice. The real-time models were then derived from those simulations and tested
 against them, the factory calibration procedures included.
 
-![The CA-72's panel](docs/panel.png)
+[![The CA-72 on YouTube: watch and hear it](docs/video.jpg)](https://youtu.be/QLfwGqYg4wU)
+
+Hear it before you download: [the CA-72 on YouTube](https://youtu.be/QLfwGqYg4wU).
 
 It is free software under the GNU General Public License, version 3 or later. Copyright ©
 2026 Idle Foundry Ltd.
@@ -55,6 +57,8 @@ find **CA-72** in **Settings › Apps** and choose **Uninstall**; on Linux, run
 presets are kept.
 
 ## Playing it
+
+![The CA-72's panel](docs/panel.png)
 
 - **Keys:** every MIDI note plays. Notes 41 to 84 are the instrument's 44 keys, F to C
   (with RANGE at 8'); beyond them the plug-in continues the key string's scale, a key a

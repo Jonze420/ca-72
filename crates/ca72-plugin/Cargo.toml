@@ -62,5 +62,9 @@ ca72-analysis.workspace = true
 ca72-rt.workspace = true
 tempfile.workspace = true
 
+# The editor's pixels read and its window captured, in the tests in a real window.
+[target.'cfg(target_os = "windows")'.dev-dependencies]
+winapi = { version = "0.3.9", features = ["winuser", "windef", "wingdi"] }
+
 [lints]
 workspace = true

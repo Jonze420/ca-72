@@ -1305,7 +1305,7 @@ impl Drop for Editing {
 /// Bitwig on Linux showed it black until the pointer changed something) and, without a
 /// compositor, what a covering window hid; baseview reports neither. So on Linux the last
 /// frame is shown again at this pace, unchanged (a copy, no rendering; decisions.md R19).
-/// macOS and Windows keep a window's pixels.
+/// macOS keeps a window's pixels; Windows asks for them again (`WindowEvent::Damaged`, R28).
 const REPAINT: Option<Duration> = if cfg!(target_os = "linux") {
     Some(Duration::from_millis(250))
 } else {
@@ -1349,6 +1349,15 @@ impl WindowHandler for PanelWindow {
         match event {
             Event::Window(WindowEvent::Resized(info)) => {
                 self.resized(&info);
+                EventStatus::Captured
+            }
+            // Windows repainting the window (a host's window painted its background over it):
+            // the last frame shown, again at once, unless none has been since it opened or
+            // resized (the next frame shows one). Not drawn afresh (decisions.md R28).
+            Event::Window(WindowEvent::Damaged) => {
+                if self.shown.is_some() {
+                    self.present();
+                }
                 EventStatus::Captured
             }
             // No gesture is left open (decisions.md R18).
@@ -3255,8 +3264,10 @@ mod tests {
 /// run while it still handles the press (the drawer taking the keyboard sent its window messages
 /// from within the handler). Either way baseview gave the busy handler a `WM_SIZE`: a panic inside
 /// its window procedure, which aborted the host's process (0.1.0, in Sonar). These tests aborted
-/// the test process then. The windows are the test's own, off the screen, so the pointer is never
-/// over them; the presets come from an empty folder of the test's.
+/// the test process then. And Windows repainting the editor's window, in a host whose window
+/// paints over it (decisions.md R28). The windows are the test's own, off the screen (or, where
+/// the editor's pixels are read, on it but invisible), and the pointer is never over them; the
+/// presets come from an empty folder of the test's.
 #[cfg(all(test, target_os = "windows"))]
 #[allow(unsafe_code)]
 mod windows_window_tests {
@@ -3268,23 +3279,43 @@ mod windows_window_tests {
     use nih_plug::editor::ParentWindowHandle;
     use nih_plug::wrapper::state::PluginState;
     use winapi::shared::minwindef::{LPARAM, WPARAM};
-    use winapi::shared::windef::{DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2, HWND, RECT};
+    use winapi::shared::windef::{DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2, HBRUSH, HWND, RECT};
+    use winapi::um::wingdi::{
+        CreateCompatibleBitmap, CreateCompatibleDC, DeleteDC, DeleteObject, GetPixel, SelectObject,
+    };
     use winapi::um::winuser::{
-        CreateWindowExW, DefWindowProcW, DestroyWindow, DispatchMessageW, GW_CHILD, GetClientRect,
-        GetWindow, MK_LBUTTON, MSG, PM_REMOVE, PeekMessageW, PostMessageW, RegisterClassW,
-        SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOZORDER, SetThreadDpiAwarenessContext, SetWindowPos,
-        TranslateMessage, WM_LBUTTONDOWN, WM_LBUTTONUP, WM_MOUSEMOVE, WNDCLASSW, WS_CLIPCHILDREN,
-        WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW, WS_POPUP, WS_VISIBLE,
+        COLOR_BTNFACE, CreateWindowExW, DefWindowProcW, DestroyWindow, DispatchMessageW, GW_CHILD,
+        GetClientRect, GetDC, GetWindow, HWND_BOTTOM, LWA_ALPHA, MK_LBUTTON, MSG, PM_REMOVE,
+        PW_RENDERFULLCONTENT, PeekMessageW, PostMessageW, PrintWindow, RDW_ALLCHILDREN, RDW_ERASE,
+        RDW_INVALIDATE, RDW_NOCHILDREN, RDW_UPDATENOW, RedrawWindow, RegisterClassW, ReleaseDC,
+        SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, SWP_NOZORDER, SetLayeredWindowAttributes,
+        SetThreadDpiAwarenessContext, SetWindowPos, TranslateMessage, WM_LBUTTONDOWN, WM_LBUTTONUP,
+        WM_MOUSEMOVE, WNDCLASSW, WS_CLIPCHILDREN, WS_EX_LAYERED, WS_EX_NOACTIVATE,
+        WS_EX_TOOLWINDOW, WS_EX_TRANSPARENT, WS_POPUP, WS_VISIBLE,
     };
 
     use super::*;
 
+    /// The host's window. Off the screen, where nothing drawn in it shows, its painting kept
+    /// off the editor's window (`WS_CLIPCHILDREN`). Or as a host's dialog (REAPER's FX window):
+    /// painting its background over the editor's window whenever it is repainted, and on the
+    /// screen, so that the editor's pixels can be read; but at the bottom of the windows, an
+    /// alpha of 1 in 255, and letting the pointer through to whatever is under it. The host
+    /// repaints it as it resizes it, from within the editor's request.
+    #[derive(Clone, Copy, PartialEq)]
+    enum HostWindow {
+        OffScreen,
+        Dialog,
+    }
+
     /// A host that grows its own window (the editor's parent) to the size the editor asks, and
-    /// with `resizes_editor` the editor's window as well, from within the request.
+    /// with `resizes_editor` the editor's window as well, from within the request; with
+    /// `repaints`, it then repaints both windows there and then.
     struct WindowHost {
         editor: Arc<Ca72Editor>,
         parent: usize,
         resizes_editor: bool,
+        repaints: bool,
         resizes: AtomicU32,
     }
 
@@ -3304,6 +3335,10 @@ mod windows_window_tests {
                 SetWindowPos(parent, null_mut(), 0, 0, w, h, flags);
                 if self.resizes_editor {
                     SetWindowPos(GetWindow(parent, GW_CHILD), null_mut(), 0, 0, w, h, flags);
+                }
+                if self.repaints {
+                    let flags = RDW_INVALIDATE | RDW_ERASE | RDW_UPDATENOW | RDW_ALLCHILDREN;
+                    RedrawWindow(parent, null_mut(), null_mut(), flags);
                 }
             }
             true
@@ -3327,7 +3362,7 @@ mod windows_window_tests {
     }
 
     impl Opened {
-        fn new(resizes_editor: bool) -> Self {
+        fn new(resizes_editor: bool, host_kind: HostWindow) -> Self {
             // The windows in pixels whatever the screen's scale (baseview sets the process's
             // awareness only once its first window is open, and the tests share the process).
             // SAFETY: this thread's own setting.
@@ -3338,11 +3373,12 @@ mod windows_window_tests {
             let meters = Arc::new(Meters::default());
             let editor = Arc::new(Ca72Editor::new(Arc::clone(&params), Arc::clone(&meters)));
             let (w, h) = editor.size();
-            let parent = host_window(w, h);
+            let parent = host_window(w, h, host_kind);
             let host = Arc::new(WindowHost {
                 editor: Arc::clone(&editor),
                 parent: parent as usize,
                 resizes_editor,
+                repaints: host_kind == HostWindow::Dialog,
                 resizes: AtomicU32::new(0),
             });
             let context: Arc<dyn GuiContext> = host.clone();
@@ -3440,10 +3476,20 @@ mod windows_window_tests {
         }
     }
 
-    /// The host's window, `w` by `h`, off the screen, with no button on the taskbar and not
-    /// brought to the front, so that it does not take the developer's pointer or keys.
-    fn host_window(w: u32, h: u32) -> HWND {
-        let class: Vec<u16> = "CA72TestHost\0".encode_utf16().collect();
+    /// The host's window, `w` by `h`, of `kind`, with no button on the taskbar and not brought
+    /// to the front, so that it does not take the developer's pointer or keys.
+    fn host_window(w: u32, h: u32, kind: HostWindow) -> HWND {
+        let (name, background, clips, see_through, at) = match kind {
+            HostWindow::OffScreen => ("CA72TestHost\0", null_mut(), WS_CLIPCHILDREN, 0, -20000),
+            HostWindow::Dialog => (
+                "CA72TestDialog\0",
+                (COLOR_BTNFACE + 1) as usize as HBRUSH,
+                0,
+                WS_EX_LAYERED | WS_EX_TRANSPARENT,
+                0,
+            ),
+        };
+        let class: Vec<u16> = name.encode_utf16().collect();
         let wc = WNDCLASSW {
             style: 0,
             lpfnWndProc: Some(DefWindowProcW),
@@ -3452,7 +3498,7 @@ mod windows_window_tests {
             hInstance: null_mut(),
             hIcon: null_mut(),
             hCursor: null_mut(),
-            hbrBackground: null_mut(),
+            hbrBackground: background,
             lpszMenuName: null_mut(),
             lpszClassName: class.as_ptr(),
         };
@@ -3461,12 +3507,12 @@ mod windows_window_tests {
         let hwnd = unsafe {
             RegisterClassW(&wc);
             CreateWindowExW(
-                WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE,
+                WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE | see_through,
                 class.as_ptr(),
                 class.as_ptr(),
-                WS_POPUP | WS_VISIBLE | WS_CLIPCHILDREN,
-                -20000,
-                -20000,
+                WS_POPUP | WS_VISIBLE | clips,
+                at,
+                at,
                 w as i32,
                 h as i32,
                 null_mut(),
@@ -3476,7 +3522,64 @@ mod windows_window_tests {
             )
         };
         assert!(!hwnd.is_null(), "a window for the test");
+        if kind == HostWindow::Dialog {
+            let flags = SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE;
+            // SAFETY: the test's own window.
+            unsafe {
+                SetLayeredWindowAttributes(hwnd, 0, 1, LWA_ALPHA);
+                SetWindowPos(hwnd, HWND_BOTTOM, 0, 0, 0, 0, flags);
+            }
+        }
         hwnd
+    }
+
+    /// The editor's window's pixels, 64 by 64 across it, as drawn there (`GetPixel` reads
+    /// the window's own, whatever covers it on the screen, but nothing off the screen).
+    fn pixels(o: &Opened) -> Vec<u32> {
+        let (w, h) = o.size();
+        let at = |i: u32, n: u32| (n * (2 * i + 1) / 128) as i32;
+        let window = o.window();
+        // SAFETY: the test's own window, and its device context, released.
+        unsafe {
+            let dc = GetDC(window);
+            let p = (0..64)
+                .flat_map(|j| (0..64).map(move |i| (at(i, w), at(j, h))))
+                .map(|(x, y)| GetPixel(dc, x, y))
+                .collect();
+            ReleaseDC(window, dc);
+            p
+        }
+    }
+
+    fn colours(pixels: &[u32]) -> usize {
+        let mut c = pixels.to_vec();
+        c.sort_unstable();
+        c.dedup();
+        c.len()
+    }
+
+    /// `window` captured as a screenshot tool does (`PrintWindow`), into a bitmap thrown away.
+    fn print(window: HWND) {
+        let mut r = RECT {
+            left: 0,
+            top: 0,
+            right: 0,
+            bottom: 0,
+        };
+        // SAFETY: the test's own window; a device context and a bitmap of this function's,
+        // deleted, and the screen's, released.
+        unsafe {
+            GetClientRect(window, &mut r);
+            let screen = GetDC(null_mut());
+            let dc = CreateCompatibleDC(screen);
+            let bitmap = CreateCompatibleBitmap(screen, r.right, r.bottom);
+            let old = SelectObject(dc, bitmap.cast());
+            PrintWindow(window, dc, PW_RENDERFULLCONTENT);
+            SelectObject(dc, old);
+            DeleteObject(bitmap.cast());
+            DeleteDC(dc);
+            ReleaseDC(null_mut(), screen);
+        }
     }
 
     /// This thread's messages, for `d`.
@@ -3507,7 +3610,7 @@ mod windows_window_tests {
     }
 
     fn the_drawer_opens_and_shuts(resizes_editor: bool) {
-        let o = Opened::new(resizes_editor);
+        let o = Opened::new(resizes_editor, HostWindow::OffScreen);
         let short = (MIN_WIDTH, height_for(MIN_WIDTH));
         assert_eq!(settled(&o, short), short);
         o.click_name();
@@ -3547,7 +3650,7 @@ mod windows_window_tests {
     /// window from within that.
     #[test]
     fn the_grip_resizes_where_the_host_resizes_the_editors_window() {
-        let o = Opened::new(true);
+        let o = Opened::new(true, HostWindow::OffScreen);
         let grip = o.at((
             (art::GRIP[0] + art::GRIP[2]) / 2.0,
             (art::GRIP[1] + art::GRIP[3]) / 2.0,
@@ -3562,6 +3665,65 @@ mod windows_window_tests {
             settled(&o, asked),
             asked,
             "the window as the editor last asked"
+        );
+        o.close();
+    }
+
+    /// Windows repainting the editor's window, in a host whose window paints its background
+    /// over it as REAPER's FX window does: the editor shows its frame again, though nothing in it
+    /// changed. 0.1.0 left the host's background there until something in the panel changed.
+    #[test]
+    fn the_panel_is_shown_again_as_windows_repaints_its_window() {
+        let o = Opened::new(false, HostWindow::Dialog);
+        let panel = pixels(&o);
+        assert!(
+            colours(&panel) >= 100,
+            "the panel shown ({} colours)",
+            colours(&panel)
+        );
+        let repaint = |flags| {
+            // SAFETY: the test's own window.
+            unsafe { RedrawWindow(o.parent, null_mut(), null_mut(), flags) };
+            pump(Duration::from_millis(100));
+            pixels(&o)
+        };
+        // The host's window alone: its background over the editor's, which Windows does not
+        // ask to repaint. So this host's painting reaches the editor's pixels here.
+        let shown = repaint(RDW_INVALIDATE | RDW_ERASE | RDW_UPDATENOW | RDW_NOCHILDREN);
+        assert_eq!(colours(&shown), 1, "the host's background");
+        // Both windows, as a host repainting its own does; then a capture of the host's.
+        let shown = repaint(RDW_INVALIDATE | RDW_ERASE | RDW_UPDATENOW | RDW_ALLCHILDREN);
+        assert!(
+            shown == panel,
+            "the panel again within 100 ms of the host's window repainted ({} colours)",
+            colours(&shown)
+        );
+        print(o.parent);
+        pump(Duration::from_millis(100));
+        let shown = pixels(&o);
+        assert!(
+            shown == panel,
+            "the panel again within 100 ms of the host's window captured ({} colours)",
+            colours(&shown)
+        );
+        // The drawer opened below the strip: the host repaints the editor's window from within
+        // the editor's request, its handler busy (the editor is told once it returns, R26), and
+        // the window, grown, again later.
+        o.click_name();
+        let tall = (MIN_WIDTH, height_for(MIN_WIDTH) + drawer_height(MIN_WIDTH));
+        assert_eq!(settled(&o, tall), tall, "the window grown for the drawer");
+        pump(Duration::from_millis(300));
+        let drawer = pixels(&o);
+        assert!(
+            colours(&drawer) >= 100,
+            "the panel and the drawer shown ({} colours)",
+            colours(&drawer)
+        );
+        let shown = repaint(RDW_INVALIDATE | RDW_ERASE | RDW_UPDATENOW | RDW_ALLCHILDREN);
+        assert!(
+            shown == drawer,
+            "the panel and the drawer again ({} colours)",
+            colours(&shown)
         );
         o.close();
     }

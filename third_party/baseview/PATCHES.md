@@ -9,8 +9,8 @@ compiler warnings (`non_snake_case` in `src/win/drop_target.rs`, and
 `mismatched_lifetime_syntaxes`). `src/macos/window.rs` has one `use` list in the order
 today's rustfmt gives it, so that `cargo fmt --all` leaves the tree as it is.
 
-One change, in `src/win/window.rs` and `src/win/drop_target.rs` (Windows only; the CA-72's
-`docs/decisions.md` R26):
+Two changes, both for Windows only, in `src/win/window.rs`, `src/win/drop_target.rs` and
+`src/event.rs` (the CA-72's `docs/decisions.md` R26 and R28):
 
 1. **The window procedure never calls the handler while it is busy.** baseview keeps the
    window's handler in a `RefCell` and borrows it for each event. A message can be sent to
@@ -46,5 +46,23 @@ One change, in `src/win/window.rs` and `src/win/drop_target.rs` (Windows only; t
    `the_grip_resizes_where_the_host_resizes_the_editors_window` abort with #252's change
    only).
 
+2. **The handler is told when Windows asks for the window to be drawn again.** baseview left
+   `WM_PAINT` to `DefWindowProcW`, which validates the window without drawing anything, and
+   told the handler nothing. Whatever invalidates the window (a host repainting its own, a
+   capture with `PrintWindow`) has Windows ask, and a parent window without
+   `WS_CLIPCHILDREN` (a dialog, as a host's may be) has by then painted its background over
+   it; a handler that draws only when its frame changes, as the CA-72's editor does, left
+   that there (in REAPER's FX window, 240, 240, 240, until something in the panel changed). Now
+   `WM_PAINT` gives the handler a new event, `WindowEvent::Damaged`, as any event is given
+   (queued while the handler is busy, and given once its call returns), and `DefWindowProcW`
+   then validates what the handler has not drawn (softbuffer validates the window as it
+   presents). Nothing else sends it: macOS keeps a window's pixels, and on X11 baseview
+   ignores `Expose` (the CA-72's editor shows its frame again every 250 ms there, R19).
+
+   The CA-72's test `the_panel_is_shown_again_as_windows_repaints_its_window` fails without
+   this change (the host's background left on the editor's window).
+
 Upstream's master has since rewritten the Windows backend and the handler's interface; to
 move to it, the editor must be ported, and the tests above show whether it still needs this.
+The rewrite tells its handler of each `WM_PAINT` and draws then (`WindowHandler::damage`,
+[#344](https://github.com/RustAudio/baseview/pull/344), 2026-10-04), as the second change does.

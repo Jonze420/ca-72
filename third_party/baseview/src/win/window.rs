@@ -13,10 +13,10 @@ use winapi::um::winuser::{
     SWP_NOZORDER, TRACKMOUSEEVENT, WHEEL_DELTA, WM_CHAR, WM_CLOSE, WM_CREATE, WM_DPICHANGED,
     WM_INPUTLANGCHANGE, WM_KEYDOWN, WM_KEYUP, WM_LBUTTONDOWN, WM_LBUTTONUP, WM_MBUTTONDOWN,
     WM_MBUTTONUP, WM_MOUSEHWHEEL, WM_MOUSELEAVE, WM_MOUSEMOVE, WM_MOUSEWHEEL, WM_NCDESTROY,
-    WM_RBUTTONDOWN, WM_RBUTTONUP, WM_SETCURSOR, WM_SHOWWINDOW, WM_SIZE, WM_SYSCHAR, WM_SYSKEYDOWN,
-    WM_SYSKEYUP, WM_TIMER, WM_USER, WM_XBUTTONDOWN, WM_XBUTTONUP, WNDCLASSW, WS_CAPTION, WS_CHILD,
-    WS_CLIPSIBLINGS, WS_MAXIMIZEBOX, WS_MINIMIZEBOX, WS_POPUPWINDOW, WS_SIZEBOX, WS_VISIBLE,
-    XBUTTON1, XBUTTON2,
+    WM_PAINT, WM_RBUTTONDOWN, WM_RBUTTONUP, WM_SETCURSOR, WM_SHOWWINDOW, WM_SIZE, WM_SYSCHAR,
+    WM_SYSKEYDOWN, WM_SYSKEYUP, WM_TIMER, WM_USER, WM_XBUTTONDOWN, WM_XBUTTONUP, WNDCLASSW,
+    WS_CAPTION, WS_CHILD, WS_CLIPSIBLINGS, WS_MAXIMIZEBOX, WS_MINIMIZEBOX, WS_POPUPWINDOW,
+    WS_SIZEBOX, WS_VISIBLE, XBUTTON1, XBUTTON2,
 };
 
 use std::cell::{Cell, Ref, RefCell};
@@ -302,6 +302,18 @@ unsafe fn wnd_proc_inner(
                 window_state.handle_event(&mut window, Event::Mouse(event));
             }
 
+            None
+        }
+        WM_PAINT => {
+            // The handler is told, so that it draws the window again (CA-72 patch, PATCHES.md):
+            // Windows asks whenever something invalidated it, and a parent window without
+            // `WS_CLIPCHILDREN` (a host's dialog) may have painted its background over it by
+            // then. What the handler draws now it validates; `DefWindowProcW` validates the rest
+            // (`BeginPaint`, `EndPaint`), or Windows would ask again ahead of every `WM_TIMER`. A
+            // handler that is busy (this message sent from within one of its calls) is told
+            // once that call returns.
+            let mut window = crate::Window::new(window_state.create_window());
+            window_state.handle_event(&mut window, Event::Window(WindowEvent::Damaged));
             None
         }
         WM_TIMER => {

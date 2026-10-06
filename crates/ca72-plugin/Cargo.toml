@@ -39,14 +39,18 @@ raw-window-handle-06 = { package = "raw-window-handle", version = "0.6" }
 keyboard-types = { version = "0.6.1", default-features = false }
 # The presets' files (decisions.md R10: the format the DAW's instrument shares).
 toml = "0.7"
+# GitHub's answer to the update check (decisions.md R27): nih-plug's own, without the
+# workspace's features.
+serde_json = "1"
 
 # The screen's size, for the editor's first size (and on Windows the keyboard's focus and
-# the pointer's capture): the versions baseview takes.
+# the pointer's capture, and the shell that opens a release in the browser): the versions
+# baseview takes.
 [target.'cfg(target_os = "macos")'.dependencies]
 cocoa = "0.24.0"
 
 [target.'cfg(target_os = "windows")'.dependencies]
-winapi = { version = "0.3.9", features = ["winuser", "windef"] }
+winapi = { version = "0.3.9", features = ["winuser", "windef", "shellapi"] }
 
 [target.'cfg(target_os = "linux")'.dependencies]
 x11 = { version = "2.21", features = ["xlib"] }

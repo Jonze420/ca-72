@@ -4,7 +4,8 @@
 //! parameter through the host, a drag one gesture (one undo step in hosts that keep them);
 //! the POWER switch is the bypass; the OVERLOAD lamp and the wheels show what the audio
 //! thread reports. The grip at the panel's bottom right corner resizes the window. Under the strip the presets' bar, and their drawer over
-//! the panel (`crate::presets`, decisions.md R10), which takes the keyboard while open.
+//! the panel (`crate::presets`, decisions.md R10), which takes the keyboard while open; in the
+//! drawer the update check (`crate::update`, R27).
 
 use std::any::Any;
 use std::sync::Arc;
@@ -18,7 +19,8 @@ use baseview::{
 use ca72_panel::art::{self, POWER};
 use ca72_panel::controls::{FEEDBACK_SILENT, feedback_silent};
 use ca72_panel::presets::{
-    BAR_END, DRAWER_H, DRAWER_TOP, DrawerRenderer, ROW_H, bar_hit, drawer_hit, overlay,
+    BAR_END, DRAWER_H, DRAWER_TOP, DrawerRenderer, DrawerTarget, ROW_H, bar_hit, drawer_hit,
+    overlay,
 };
 use ca72_panel::strip::{self, Amount, STRIP_H, StripRenderer, StripScene, StripTarget};
 use ca72_panel::{CONTROLS, Kind, Renderer, Scene, Target, interact};
@@ -28,6 +30,7 @@ use nih_plug::prelude::*;
 use crate::library::Library;
 use crate::params::Ca72Params;
 use crate::presets::Browser;
+use crate::update::Update;
 
 /// The share of the usable screen the editor opens at until it is resized.
 const SCREEN_SHARE: f64 = 0.8;
@@ -419,6 +422,8 @@ struct Editing {
     resizing_window: bool,
     /// The drawer placed for its opening (below the strip or over the panel), asked once.
     placed: bool,
+    /// The update check in the drawer; dropped with the editor, it ends a check under way.
+    update: Update,
     /// The pointer, in logical pixels.
     pointer: (f64, f64),
     hover: Option<Target>,
@@ -569,6 +574,7 @@ impl Editing {
             slid: None,
             resizing_window: false,
             placed: false,
+            update: Update::default(),
             pointer: (0.0, 0.0),
             hover: None,
             drag: None,
@@ -780,10 +786,14 @@ impl Editing {
         self.end_gestures();
         let (x, y) = self.in_drawing(self.pointer);
         if let Some((dx, dy)) = self.in_drawer((x, y)) {
-            if let Some(t) = drawer_hit(self.drawer.fonts(), &self.browser.drawer, dx, dy) {
-                let setter = ParamSetter::new(self.context.as_ref());
-                self.browser
-                    .drawer_press(t, dx, &self.drawer, &self.params, &setter);
+            match drawer_hit(self.drawer.fonts(), &self.browser.drawer, dx, dy) {
+                Some(DrawerTarget::Update) => self.update.press(),
+                Some(t) => {
+                    let setter = ParamSetter::new(self.context.as_ref());
+                    self.browser
+                        .drawer_press(t, dx, &self.drawer, &self.params, &setter);
+                }
+                None => {}
             }
             self.follow_drawer();
             return;
@@ -1192,6 +1202,8 @@ impl Editing {
         }
         self.update_scene();
         self.browser.tick(&self.params);
+        self.update.tick();
+        self.browser.drawer.update = self.update.scene();
         self.shrink_shut_drawer();
         let panel = self.renderer.render(&self.scene);
         self.strip_scene.bar.clone_from(&self.browser.bar);
@@ -3176,6 +3188,34 @@ mod tests {
             y += f.height() as usize;
         }
         all.save_png(out).unwrap();
+    }
+
+    /// The drawer's update check (decisions.md R27): its button the editor's, not the
+    /// presets'; a check that could not be made offers the releases' page. No parameter is
+    /// touched and the drawer stays open.
+    #[test]
+    fn the_drawer_checks_for_updates() {
+        use crate::update::{RELEASES, VERSION, fake};
+        let dir = tempfile::tempdir().unwrap();
+        let (mut e, host, _params) = editing_with(Library::at(dir.path()));
+        e.update = Update::with(fake::no_curl, fake::browser);
+        e.draw();
+        open(&mut e);
+        let s = &e.browser.drawer.update;
+        assert_eq!(
+            (s.text.as_str(), s.button.as_str()),
+            (format!("CA-72 {VERSION}").as_str(), "CHECK FOR UPDATES")
+        );
+        let button = in_drawer(&e, presets_ui::update_centre());
+        go(&mut e, button);
+        assert_eq!(e.browser.drawer.hover, Some(DrawerTarget::Update));
+        click(&mut e, button);
+        e.draw();
+        assert_eq!(e.browser.drawer.update.text, "COULD NOT CHECK");
+        click(&mut e, button);
+        assert_eq!(fake::opened(), vec![RELEASES.to_owned()]);
+        assert!(e.browser.open);
+        assert_eq!(host.take(), vec![]);
     }
 
     /// The window's frames stacked (the panel with the drawer over it, the strip, the bar),

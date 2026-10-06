@@ -56,6 +56,12 @@ find **CA-72** in **Settings › Apps** and choose **Uninstall**; on Linux, run
 `./install.sh --uninstall` (`./install.sh --uninstall --system` for a system-wide copy). Your
 presets are kept.
 
+**Updating.** Open the presets' drawer (click the preset's name under the panel) and click
+**CHECK FOR UPDATES** at its top right, beside the version you have. If a newer release is
+out, **DOWNLOAD** opens its installer for your computer in your browser: close your host,
+then run it as above. The CA-72 checks only when you click, through your system's `curl`,
+and sends nothing of yours.
+
 ## Playing it
 
 ![The CA-72's panel](docs/panel.png)
@@ -282,6 +288,10 @@ The service documents and datasheets the model was derived from are not included
   the editor draws a pixel a point: the panel fills the window at any size, but the hover
   tips are small on a high-density screen.
 - The Windows installer is unsigned (see [Installing](#installing)).
+- The update check needs `curl` (Windows 10 1803 or later and macOS have it, as do most
+  Linux distributions) and a direct connection to GitHub; it does not use Windows' proxy
+  settings (curl reads `HTTPS_PROXY`). When it cannot check, **RELEASES PAGE** opens the
+  releases in your browser.
 
 ## Credits
 

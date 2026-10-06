@@ -1436,5 +1436,17 @@ release's `SHA256SUMS.txt` gives (the `.pkg` signed and notarised). A build call
   the arguments above, no console window appearing, its file removed; DOWNLOAD had Chrome
   download the Windows installer (15,419,949 bytes, the release's); closed, it exited.
 
-Not tried: a host on macOS or Windows (the Mac's Live and Bitwig need clicks this testing
-could not make there), an HTTP proxy, a release whose installer is missing.
+Later the same day, the build calling itself 0.0.9 renamed `CA-72 TEST` (its own CLAP and VST3
+IDs, so that a host never takes it for the installed CA-72), in portable copies of REAPER 7.82
+that kept their settings to themselves:
+- **On macOS** (the VST3; the clicks made with `cliclick`): the same, from CHECK FOR UPDATES to
+  `CLOSE THE DAW, THEN INSTALL IT`; Chrome downloaded the `.pkg` (its SHA-256 the release's).
+- **On Windows** (the CLAP, then the VST3; the clicks posted to the editor's window): the same;
+  `System32\curl.exe` run by REAPER, no console window, the file removed; Chrome downloaded the
+  Windows installer (the release's size).
+
+Seen meanwhile, and not this record's: on Windows the editor does not draw again when Windows
+repaints its window, so whatever invalidates it (a capture made with `PrintWindow` here) leaves
+it blank until something in it changes; 0.1.0 did the same. Left for a change of its own.
+
+Not tried: Live or Bitwig, an HTTP proxy, a release whose installer is missing.

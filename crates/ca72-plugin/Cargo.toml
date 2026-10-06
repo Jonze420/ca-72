@@ -29,9 +29,10 @@ ca72-rt.workspace = true
 libm.workspace = true
 ca72-panel = { path = "../ca72-panel" }
 nih_plug.workspace = true
-# The editor's window and its pixels: the revision nih-plug's own examples use. baseview
-# takes `raw-window-handle` 0.5, softbuffer 0.6.
-baseview = { git = "https://github.com/RustAudio/baseview.git", rev = "9a0b42c09d712777b2edb4c5e0cb6baf21e988f0" }
+# The editor's window and its pixels: baseview at the revision nih-plug's own examples use,
+# patched (third_party/baseview/PATCHES.md). baseview takes `raw-window-handle` 0.5,
+# softbuffer 0.6.
+baseview = { path = "../../third_party/baseview" }
 softbuffer = { version = "0.4.6", default-features = false, features = ["kms", "x11"] }
 raw-window-handle = "0.5"
 raw-window-handle-06 = { package = "raw-window-handle", version = "0.6" }

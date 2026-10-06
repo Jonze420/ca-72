@@ -1364,3 +1364,77 @@ target; CI's `--all-features` on MSVC not run here); `cargo fmt --all -- --check
 `scripts/notices.py --check`. Not tried: Sonar, the reporter's DAW, the CLAP in a host (the
 same editor), macOS and Linux (whose code is unchanged: `src/macos/window.rs` only as rustfmt
 orders it).
+
+## R27. An update check, when asked
+**Owner decisions, 2026-10-06.** The owner asked whether the plug-in could look for new
+releases on GitHub, or let its user look. Of three ways offered (a link to the releases'
+page; a check made when the user clicks; a check made by itself, at most daily, that could
+be turned off), the owner chose the second, with a button that downloads the installer for
+the user's system. Installing it from within the plug-in was weighed and not made: the
+plug-in would be replacing its own files while the host has them loaded (locked, on
+Windows), both installers ask for an administrator anyway, and a plug-in that ran what it
+downloaded would let whoever controlled a release run code on every user's machine (the
+Windows installer is unsigned, and the release's checksums come from the same release).
+
+**Agent decisions, 2026-10-06** (not separately approved):
+- **Where:** the presets' drawer's tools, before ×: the version (`CA-72 0.1.0`) and CHECK FOR
+  UPDATES. The strip's row is full (R12), and the panel is the instrument's.
+- **Through the system's curl,** not a network library linked in: Windows' own
+  `System32\curl.exe` (Windows 10 1803 on), macOS's `/usr/bin/curl`, elsewhere the one on the
+  path. It asks `api.github.com/repos/idlefoundry/ca-72/releases/latest`, which names only
+  published releases (no drafts or pre-releases): HTTPS only (redirects too), 20 s and 1 MB at
+  most, as `CA-72/<version>`, nothing else sent; on Windows without a console window.
+  serde_json, which nih-plug already links, reads the answer: the notices are unchanged.
+- **No thread waits for it** (R23): curl writes into a file the editor makes afresh in the
+  temporary folder (never one already there, nor through a link), and the editor looks each
+  frame whether curl has finished. Closing the editor ends curl and removes the file; past
+  30 s the check fails. A curl gone with its exit unknown (a host that reaps its children
+  itself, ignoring SIGCHLD) has its answer read all the same and judged by itself; curl
+  writes none on an HTTP error.
+- **What it shows:** CHECKING…; `<version> IS UP TO DATE` (this release or a later one) and
+  CHECK FOR UPDATES again; `<new> IS OUT (THIS IS <this>)` in the accent, and DOWNLOAD; after
+  DOWNLOAD, CLOSE THE DAW, THEN INSTALL IT; COULD NOT CHECK (no curl, no answer, an HTTP
+  error, an answer without a version) and RELEASES PAGE; NO BROWSER WOULD OPEN. A version is
+  three numbers, compared in order.
+- **DOWNLOAD opens the installer in the browser,** which downloads it: the release's
+  `CA-72-<version>-Windows-setup.exe`, `-macOS.pkg` or `-Linux-x86_64.tar.gz`, as the README
+  lists them; the release's page where it has none for the system, or the system has none
+  (Linux on ARM). Windows' shell (`ShellExecuteW`) opens it, macOS's `open`, Linux's
+  `xdg-open`, and only an address under `https://github.com/idlefoundry/ca-72/releases`,
+  whatever the answer says. An `open` or `xdg-open` that exits in failure (with no display,
+  `xdg-open` exits 3 and opens nothing) turns the message to NO BROWSER WOULD OPEN.
+- **SECURITY.md** no longer says the plug-in opens no network connections: it says when it
+  connects and what it sends. The README says how to update, and the check's limits (curl,
+  no Windows proxy settings).
+- **Tests:** `update::tests` (versions; each system's installer found; addresses elsewhere
+  refused; answers without a version; every scene fits the drawer whole; a newer release's
+  DOWNLOAD and what follows, and this release up to date and checked again, each through a
+  stand-in for curl printing a canned answer; curl missing or failing; an opener failing
+  once started; the editor closed mid-check ending curl at once and leaving no file; and,
+  run by hand, GitHub asked, the releases' page opened in the browser, and the latest
+  release's installer for the system downloaded by it), `ca72-panel`'s `presets::tests`
+  (the button found where drawn, and not where there is none), and the editor's
+  `the_drawer_checks_for_updates`.
+
+**Evidence (2026-10-06):** on Windows 11 (the GNU toolchain as R24), macOS (the Mac, Apple
+silicon) and Linux (an x86-64 desktop running Hyprland), the tests of `ca72-plugin` and
+`ca72-panel` all passed, R26's real-window tests among them on Windows, and clippy with
+`-D warnings` passed on both crates and all targets (on Windows the whole workspace with
+`--features ca72-plugin/standalone`); `cargo fmt --all -- --check` and
+`scripts/notices.py --check` on Windows. On each system, by hand, the system's own curl
+found 0.1.0 up to date, and the browser (Chrome on Windows and macOS, Chromium on Linux)
+opened the releases' page and downloaded 0.1.0's installer for the system, its SHA-256 the
+release's `SHA256SUMS.txt` gives (the `.pkg` signed and notarised). A build calling itself
+0.0.9, so that 0.1.0 was newer:
+- **REAPER 7.79 on Linux** (a portable copy scanning only the build's folder; the clicks
+  sent to the editor's X11 window): the drawer opened below the strip, the window growing;
+  CHECK FOR UPDATES, then CHECKING…, then `0.1.0 IS OUT (THIS IS 0.0.9)` and DOWNLOAD;
+  DOWNLOAD had Chromium download the Linux installer (its SHA-256 the release's) and said
+  CLOSE THE DAW, THEN INSTALL IT; no process of the check's was left, nor its file.
+- **The standalone on Windows** (started without a console, as a host is; the clicks posted
+  to the editor's window; a screen at 200 %): the same, `System32\curl.exe` run by it with
+  the arguments above, no console window appearing, its file removed; DOWNLOAD had Chrome
+  download the Windows installer (15,419,949 bytes, the release's); closed, it exited.
+
+Not tried: a host on macOS or Windows (the Mac's Live and Bitwig need clicks this testing
+could not make there), an HTTP proxy, a release whose installer is missing.

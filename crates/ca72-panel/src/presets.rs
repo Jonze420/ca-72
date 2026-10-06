@@ -2,9 +2,9 @@
 //! the owner, 2026-10-02, asked for the presets to drop down from the bottom, in a drawer):
 //! the selector names the preset the plug-in was last set to (marked • once changed), with
 //! its favourite star, the previous and next preset and SAVE…, in the strip's row (the
-//! owner, 2026-10-02, asked for it on the same row); the drawer: a search
-//! field, FAVOURITES and MINE, the tags in use as chips, the list (each row's star, its name,
-//! EDITED or YOURS, its tags, and RENAME, TAGS, REVERT, DELETE), and under it the current
+//! owner, 2026-10-02, asked for it on the same row); the drawer: a search field, FAVOURITES
+//! and MINE, the update check (R27), the tags in use as chips, the list (each row's star, its
+//! name, EDITED or YOURS, its tags, and RENAME, TAGS, REVERT, DELETE), and under it the current
 //! sound saved as a preset, named and tagged, and RESTORE FACTORY. The drawer opens below the
 //! strip, the window growing for it (the owner, 2026-10-02, chose a drawer opening downwards,
 //! extending the plug-in's window); where the host will not resize the window it slides up
@@ -173,8 +173,30 @@ pub enum DrawerTarget {
     Action(usize, RowAction),
     SaveGo,
     Restore,
+    /// The update check's button.
+    Update,
     /// The drawer, where nothing else is.
     Back,
+}
+
+/// The colour of the update check's text.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub enum Tone {
+    #[default]
+    Dim,
+    /// A newer release.
+    News,
+    /// Something went wrong.
+    Trouble,
+}
+
+/// The update check, at the tools' right before ×: what it says, and its button's label
+/// (none drawn when empty).
+#[derive(Clone, Debug, PartialEq, Default)]
+pub struct UpdateScene {
+    pub text: String,
+    pub tone: Tone,
+    pub button: String,
 }
 
 /// A row of the list.
@@ -209,6 +231,7 @@ pub struct DrawerScene {
     pub hint: String,
     pub focus: Option<FieldId>,
     pub hover: Option<DrawerTarget>,
+    pub update: UpdateScene,
 }
 
 /// What the bar shows.
@@ -475,6 +498,11 @@ const FAVS_W: f64 = 320.0;
 const MINE_X: f64 = 2280.0;
 const MINE_W: f64 = 180.0;
 const CLOSE_W: f64 = 64.0;
+/// The update check's button, before ×; its text ends short of the button.
+const UPDATE_W: f64 = 380.0;
+const UPDATE_X: f64 = W - PAD - CLOSE_W - 24.0 - UPDATE_W;
+const UPDATE_TEXT_END: f64 = UPDATE_X - 24.0;
+const UPDATE_LABEL: f64 = TEXT;
 const CHIPS_Y: f64 = 112.0;
 const CHIP_H: f64 = 44.0;
 const LIST_Y: f64 = 176.0;
@@ -606,6 +634,9 @@ pub fn drawer_hit(fonts: &Fonts, s: &DrawerScene, x: f64, y: f64) -> Option<Draw
     }
     if inside(W - PAD - CLOSE_W, W - PAD, TOOLS_Y, TOOLS_H) {
         return Some(DrawerTarget::Close);
+    }
+    if !s.update.button.is_empty() && inside(UPDATE_X, UPDATE_X + UPDATE_W, TOOLS_Y, TOOLS_H) {
+        return Some(DrawerTarget::Update);
     }
     for (i, (cx, cw)) in chip_boxes(fonts, &s.chips).into_iter().enumerate() {
         if inside(cx, cx + cw, CHIPS_Y, CHIP_H) {
@@ -777,6 +808,34 @@ fn drawer_body(fonts: &Fonts, s: &DrawerScene) -> String {
         hover(DrawerTarget::Close),
         colour::LEGEND,
     );
+    // The update check.
+    let u = &s.update;
+    let tone = match u.tone {
+        Tone::Dim => DIM,
+        Tone::News => ACCENT,
+        Tone::Trouble => WARN,
+    };
+    let room = UPDATE_TEXT_END - (MINE_X + MINE_W + 30.0);
+    text(
+        &mut out,
+        UPDATE_TEXT_END,
+        TOOLS_Y + TOOLS_H / 2.0,
+        &fit(fonts, &u.text, SMALL, room),
+        SMALL,
+        tone,
+        "end",
+    );
+    if !u.button.is_empty() {
+        button(
+            &mut out,
+            (UPDATE_X, TOOLS_Y, UPDATE_W, TOOLS_H),
+            &u.button,
+            UPDATE_LABEL,
+            u.tone == Tone::News,
+            hover(DrawerTarget::Update),
+            colour::LEGEND,
+        );
+    }
     // The chips.
     for (i, (x, w)) in chip_boxes(fonts, &s.chips).into_iter().enumerate() {
         let (t, on) = &s.chips[i];
@@ -1179,6 +1238,16 @@ mod tests {
             at(W - PAD - 20.0, TOOLS_Y + 20.0),
             Some(DrawerTarget::Close)
         );
+        // The update check's button, when it has one.
+        let (ux, uy) = update_centre();
+        assert_eq!(at(ux, uy), Some(DrawerTarget::Back));
+        let mut s1 = scene();
+        s1.update.button = "CHECK FOR UPDATES".into();
+        assert_eq!(drawer_hit(&fonts, &s1, ux, uy), Some(DrawerTarget::Update));
+        assert_eq!(
+            drawer_hit(&fonts, &s1, UPDATE_X - 10.0, uy),
+            Some(DrawerTarget::Back)
+        );
         assert_eq!(at(PAD + 10.0, CHIPS_Y + 20.0), Some(DrawerTarget::Chip(0)));
         let row = |i: usize| LIST_Y + i as f64 * ROW_H + ROW_H / 2.0;
         assert_eq!(at(800.0, row(3)), Some(DrawerTarget::Row(3)));
@@ -1374,6 +1443,11 @@ mod png {
             hint: "Replaces your Deep Bass.".into(),
             focus: Some(FieldId::SaveName),
             hover: Some(DrawerTarget::Row(2)),
+            update: UpdateScene {
+                text: "0.2.0 IS OUT (THIS IS 0.1.0)".into(),
+                tone: Tone::News,
+                button: "DOWNLOAD".into(),
+            },
         });
         d.frame().save_png(dir.join("drawer.png")).unwrap();
     }
@@ -1408,6 +1482,19 @@ pub fn bar_centre(t: BarTarget) -> (f64, f64) {
 pub fn field_centre(id: FieldId, row: Option<f64>) -> (f64, f64) {
     let (x0, x1, y, h) = field_box(id, row);
     ((x0 + x1) / 2.0, y + h / 2.0)
+}
+
+/// Whether the update check's `scene` is drawn whole: its text not shortened, its button's
+/// label within the button.
+pub fn update_fits(fonts: &Fonts, scene: &UpdateScene) -> bool {
+    let w = |t: &str, size| fonts.advance(t, size, Weight::Regular, 1.0);
+    w(&scene.text, SMALL) <= UPDATE_TEXT_END - (MINE_X + MINE_W + 30.0)
+        && w(&scene.button, UPDATE_LABEL) <= UPDATE_W - 40.0
+}
+
+/// Where the update check's button's middle is (drawer units).
+pub fn update_centre() -> (f64, f64) {
+    (UPDATE_X + UPDATE_W / 2.0, TOOLS_Y + TOOLS_H / 2.0)
 }
 
 /// Where row `i`'s middle is, if it is shown (drawer units).

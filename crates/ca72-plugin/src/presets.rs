@@ -735,7 +735,8 @@ impl Browser {
                 }
                 self.reread(p);
             }
-            DrawerTarget::Back => {}
+            // The update check is the editor's (`crate::update`).
+            DrawerTarget::Update | DrawerTarget::Back => {}
         }
     }
 

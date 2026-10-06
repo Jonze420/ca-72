@@ -317,6 +317,7 @@ impl Editor for Ca72Editor {
                     grown,
                     width,
                     f64::from(scale.unwrap_or(1.0)),
+                    Library::shared(),
                 )
             },
         );
@@ -437,6 +438,9 @@ struct Editing {
 }
 
 impl PanelWindow {
+    /// The editor's window: `width` logical pixels wide, `dpr` physical pixels a logical one,
+    /// the presets from `library` (the user's, but in the tests).
+    #[allow(clippy::too_many_arguments)]
     fn new(
         window: &mut Window<'_>,
         context: Arc<dyn GuiContext>,
@@ -445,6 +449,7 @@ impl PanelWindow {
         grown: Arc<AtomicBool>,
         width: u32,
         dpr: f64,
+        library: Library,
     ) -> Self {
         let physical = (
             (f64::from(width) * dpr).round() as u32,
@@ -461,7 +466,7 @@ impl PanelWindow {
                 params,
                 meters,
                 (width, physical.0, dpr),
-                Library::shared(),
+                library,
                 grown,
                 |k| screen::usable(Some(k)),
             ),
@@ -3200,5 +3205,324 @@ mod tests {
             y += f.height() as usize;
         }
         all.save_png(out).unwrap();
+    }
+}
+
+/// The editor in a real window on Windows, in a host that resizes windows (decisions.md R26).
+/// Opening the presets' drawer, shutting it and dragging the grip ask the host for another size
+/// from within the editor's event handler. The host may resize the editor's window right there,
+/// from within `IPlugFrame::resizeView()` (here `resizes_editor`), or the editor's own resize may
+/// run while it still handles the press (the drawer taking the keyboard sent its window messages
+/// from within the handler). Either way baseview gave the busy handler a `WM_SIZE`: a panic inside
+/// its window procedure, which aborted the host's process (0.1.0, in Sonar). These tests aborted
+/// the test process then. The windows are the test's own, off the screen, so the pointer is never
+/// over them; the presets come from an empty folder of the test's.
+#[cfg(all(test, target_os = "windows"))]
+#[allow(unsafe_code)]
+mod windows_window_tests {
+    use std::path::PathBuf;
+    use std::ptr::null_mut;
+
+    use ca72_panel::presets::{self as presets_ui, BarTarget};
+    use nih_plug::context::PluginApi;
+    use nih_plug::editor::ParentWindowHandle;
+    use nih_plug::wrapper::state::PluginState;
+    use winapi::shared::minwindef::{LPARAM, WPARAM};
+    use winapi::shared::windef::{DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2, HWND, RECT};
+    use winapi::um::winuser::{
+        CreateWindowExW, DefWindowProcW, DestroyWindow, DispatchMessageW, GW_CHILD, GetClientRect,
+        GetWindow, MK_LBUTTON, MSG, PM_REMOVE, PeekMessageW, PostMessageW, RegisterClassW,
+        SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOZORDER, SetThreadDpiAwarenessContext, SetWindowPos,
+        TranslateMessage, WM_LBUTTONDOWN, WM_LBUTTONUP, WM_MOUSEMOVE, WNDCLASSW, WS_CLIPCHILDREN,
+        WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW, WS_POPUP, WS_VISIBLE,
+    };
+
+    use super::*;
+
+    /// A host that grows its own window (the editor's parent) to the size the editor asks, and
+    /// with `resizes_editor` the editor's window as well, from within the request.
+    struct WindowHost {
+        editor: Arc<Ca72Editor>,
+        parent: usize,
+        resizes_editor: bool,
+        resizes: AtomicU32,
+    }
+
+    impl GuiContext for WindowHost {
+        fn plugin_api(&self) -> PluginApi {
+            PluginApi::Vst3
+        }
+        fn request_resize(&self) -> bool {
+            self.resizes.fetch_add(1, Ordering::Relaxed);
+            let (w, h) = self.editor.size();
+            let (w, h) = (w as i32, h as i32);
+            let parent = self.parent as HWND;
+            let flags = SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE;
+            // SAFETY: the test's own windows, on the thread that made them (the editor asks from
+            // its event handler).
+            unsafe {
+                SetWindowPos(parent, null_mut(), 0, 0, w, h, flags);
+                if self.resizes_editor {
+                    SetWindowPos(GetWindow(parent, GW_CHILD), null_mut(), 0, 0, w, h, flags);
+                }
+            }
+            true
+        }
+        unsafe fn raw_begin_set_parameter(&self, _param: ParamPtr) {}
+        unsafe fn raw_set_parameter_normalized(&self, _param: ParamPtr, _normalized: f32) {}
+        unsafe fn raw_end_set_parameter(&self, _param: ParamPtr) {}
+        fn get_state(&self) -> PluginState {
+            panic!("the editor does not read the state")
+        }
+        fn set_state(&self, _state: PluginState) {}
+    }
+
+    /// The editor's window open in the host's, at the narrowest width and a pixel a point.
+    struct Opened {
+        parent: HWND,
+        editor: Arc<Ca72Editor>,
+        host: Arc<WindowHost>,
+        handle: baseview::WindowHandle,
+        _presets: tempfile::TempDir,
+    }
+
+    impl Opened {
+        fn new(resizes_editor: bool) -> Self {
+            // The windows in pixels whatever the screen's scale (baseview sets the process's
+            // awareness only once its first window is open, and the tests share the process).
+            // SAFETY: this thread's own setting.
+            unsafe { SetThreadDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2) };
+            let presets = tempfile::tempdir().expect("a temporary folder");
+            let params = Arc::new(Ca72Params::default());
+            params.editor_width.store(MIN_WIDTH, Ordering::Relaxed);
+            let meters = Arc::new(Meters::default());
+            let editor = Arc::new(Ca72Editor::new(Arc::clone(&params), Arc::clone(&meters)));
+            let (w, h) = editor.size();
+            let parent = host_window(w, h);
+            let host = Arc::new(WindowHost {
+                editor: Arc::clone(&editor),
+                parent: parent as usize,
+                resizes_editor,
+                resizes: AtomicU32::new(0),
+            });
+            let context: Arc<dyn GuiContext> = host.clone();
+            let grown = Arc::clone(&editor.grown);
+            let dir: PathBuf = presets.path().to_path_buf();
+            let handle = Window::open_parented(
+                &window::Parent(ParentWindowHandle::Win32Hwnd(parent.cast())),
+                WindowOpenOptions {
+                    title: String::from("CA-72"),
+                    size: Size::new(f64::from(w), f64::from(h)),
+                    scale: WindowScalePolicy::ScaleFactor(1.0),
+                },
+                move |window: &mut Window<'_>| {
+                    PanelWindow::new(
+                        window,
+                        context,
+                        params,
+                        meters,
+                        grown,
+                        w,
+                        1.0,
+                        Library::at(dir),
+                    )
+                },
+            );
+            pump(Duration::from_millis(300));
+            Opened {
+                parent,
+                editor,
+                host,
+                handle,
+                _presets: presets,
+            }
+        }
+
+        /// The editor's window.
+        fn window(&self) -> HWND {
+            // SAFETY: the test's own window.
+            unsafe { GetWindow(self.parent, GW_CHILD) }
+        }
+
+        /// Its size, in pixels (logical ones: its scale is 1).
+        fn size(&self) -> (u32, u32) {
+            let mut r = RECT {
+                left: 0,
+                top: 0,
+                right: 0,
+                bottom: 0,
+            };
+            // SAFETY: the test's own window and a rectangle of this function's.
+            unsafe { GetClientRect(self.window(), &mut r) };
+            ((r.right - r.left) as u32, (r.bottom - r.top) as u32)
+        }
+
+        /// Drawing units to the window's pixels.
+        fn at(&self, (x, y): (f64, f64)) -> (f64, f64) {
+            let k = f64::from(self.size().0) / art::W;
+            (x * k, y * k)
+        }
+
+        /// The pointer moved to `at` (pixels), pressed, moved `dx` across in steps, released.
+        fn drag(&self, at: (f64, f64), dx: f64) {
+            let lp = |(x, y): (f64, f64)| {
+                (((y.round() as u32) << 16) | (x.round() as u32 & 0xFFFF)) as LPARAM
+            };
+            let w = self.window();
+            // SAFETY: messages posted to the test's own window.
+            unsafe {
+                PostMessageW(w, WM_MOUSEMOVE, 0, lp(at));
+                PostMessageW(w, WM_LBUTTONDOWN, MK_LBUTTON as WPARAM, lp(at));
+            }
+            pump(Duration::from_millis(50));
+            for i in 1..=4 {
+                let to = (at.0 + dx * f64::from(i) / 4.0, at.1);
+                // SAFETY: as above.
+                unsafe { PostMessageW(w, WM_MOUSEMOVE, MK_LBUTTON as WPARAM, lp(to)) };
+                pump(Duration::from_millis(50));
+            }
+            // SAFETY: as above.
+            unsafe { PostMessageW(w, WM_LBUTTONUP, 0, lp((at.0 + dx, at.1))) };
+            pump(Duration::from_millis(400));
+        }
+
+        /// A click on the preset's name, in the strip under the panel.
+        fn click_name(&self) {
+            let (x, y) = presets_ui::bar_centre(BarTarget::Name);
+            self.drag(self.at((x, art::H + y)), 0.0);
+        }
+
+        fn close(mut self) {
+            self.handle.close();
+            pump(Duration::from_millis(100));
+            // SAFETY: the test's own window.
+            unsafe { DestroyWindow(self.parent) };
+        }
+    }
+
+    /// The host's window, `w` by `h`, off the screen, with no button on the taskbar and not
+    /// brought to the front, so that it does not take the developer's pointer or keys.
+    fn host_window(w: u32, h: u32) -> HWND {
+        let class: Vec<u16> = "CA72TestHost\0".encode_utf16().collect();
+        let wc = WNDCLASSW {
+            style: 0,
+            lpfnWndProc: Some(DefWindowProcW),
+            cbClsExtra: 0,
+            cbWndExtra: 0,
+            hInstance: null_mut(),
+            hIcon: null_mut(),
+            hCursor: null_mut(),
+            hbrBackground: null_mut(),
+            lpszMenuName: null_mut(),
+            lpszClassName: class.as_ptr(),
+        };
+        // SAFETY: a window class of the test's (registered by the first test to get here; the
+        // others' calls fail harmlessly) and a window of it, on this thread.
+        let hwnd = unsafe {
+            RegisterClassW(&wc);
+            CreateWindowExW(
+                WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE,
+                class.as_ptr(),
+                class.as_ptr(),
+                WS_POPUP | WS_VISIBLE | WS_CLIPCHILDREN,
+                -20000,
+                -20000,
+                w as i32,
+                h as i32,
+                null_mut(),
+                null_mut(),
+                null_mut(),
+                null_mut(),
+            )
+        };
+        assert!(!hwnd.is_null(), "a window for the test");
+        hwnd
+    }
+
+    /// This thread's messages, for `d`.
+    fn pump(d: Duration) {
+        let until = Instant::now() + d;
+        // SAFETY: a message structure of this function's, for this thread's messages.
+        let mut msg: MSG = unsafe { std::mem::zeroed() };
+        while Instant::now() < until {
+            // SAFETY: as above.
+            while unsafe { PeekMessageW(&mut msg, null_mut(), 0, 0, PM_REMOVE) } != 0 {
+                // SAFETY: a message just taken from this thread's queue.
+                unsafe {
+                    TranslateMessage(&msg);
+                    DispatchMessageW(&msg);
+                }
+            }
+            std::thread::sleep(Duration::from_millis(2));
+        }
+    }
+
+    /// The editor's window's size once it is `want`, or after 5 s, its messages handled meanwhile.
+    fn settled(o: &Opened, want: (u32, u32)) -> (u32, u32) {
+        let until = Instant::now() + Duration::from_secs(5);
+        while o.size() != want && Instant::now() < until {
+            pump(Duration::from_millis(20));
+        }
+        o.size()
+    }
+
+    fn the_drawer_opens_and_shuts(resizes_editor: bool) {
+        let o = Opened::new(resizes_editor);
+        let short = (MIN_WIDTH, height_for(MIN_WIDTH));
+        assert_eq!(settled(&o, short), short);
+        o.click_name();
+        let tall = (MIN_WIDTH, height_for(MIN_WIDTH) + drawer_height(MIN_WIDTH));
+        assert_eq!(
+            settled(&o, tall),
+            tall,
+            "the window grown for the drawer below the strip"
+        );
+        assert!(
+            o.host.resizes.load(Ordering::Relaxed) >= 1,
+            "the host asked"
+        );
+        o.click_name();
+        assert_eq!(
+            settled(&o, short),
+            short,
+            "the window back once the drawer has shut"
+        );
+        o.close();
+    }
+
+    /// The host grows its own window, the editor its own (the drawer took the keyboard as the
+    /// press was handled: its window's messages ran the resize early).
+    #[test]
+    fn the_drawer_opens_and_shuts_where_the_host_grows_its_own_window() {
+        the_drawer_opens_and_shuts(false);
+    }
+
+    /// The host resizes the editor's window as well, from within the editor's request.
+    #[test]
+    fn the_drawer_opens_and_shuts_where_the_host_resizes_the_editors_window() {
+        the_drawer_opens_and_shuts(true);
+    }
+
+    /// The grip asks for its width at the editor's next frame; the host resizes the editor's
+    /// window from within that.
+    #[test]
+    fn the_grip_resizes_where_the_host_resizes_the_editors_window() {
+        let o = Opened::new(true);
+        let grip = o.at((
+            (art::GRIP[0] + art::GRIP[2]) / 2.0,
+            (art::GRIP[1] + art::GRIP[3]) / 2.0,
+        ));
+        o.drag(grip, 120.0);
+        assert!(
+            o.host.resizes.load(Ordering::Relaxed) >= 1,
+            "the host asked"
+        );
+        let asked = o.editor.size();
+        assert_eq!(
+            settled(&o, asked),
+            asked,
+            "the window as the editor last asked"
+        );
+        o.close();
     }
 }

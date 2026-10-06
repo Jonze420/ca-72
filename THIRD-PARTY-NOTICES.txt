@@ -205,7 +205,7 @@ DEALINGS IN THE SOFTWARE.
 ==============================================================================
 adler2 2.0.1  https://github.com/oyvindln/adler2
 anyhow 1.0.104  https://github.com/dtolnay/anyhow
-baseview 0.1.0  https://github.com/RustAudio/baseview.git at 9a0b42c09d71
+baseview 0.1.0  https://github.com/RustAudio/baseview
 clap-sys 0.5.0  https://github.com/micahrj/clap-sys.git at 25d7f53fdb63
 drm 0.14.1  https://github.com/Smithay/drm-rs
 drm-ffi 0.9.1  https://github.com/Smithay/drm-rs

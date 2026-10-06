@@ -201,7 +201,9 @@ cargo test --workspace
 The tests take three to eight minutes, building included. They check the real-time models
 against the circuit lab's reference measurements. They also check that the plug-in neither
 allocates nor frees memory on the audio thread, and that the editor's gestures reach the
-host as single gestures. One test compares the panel as drawn with the approved design.
+host as single gestures. One test compares the panel as drawn with the approved design. On
+Windows three open the editor in a window of their own, off the screen, and resize it as hosts
+do.
 
 `scripts/validate.sh` runs clap-validator, pluginval (at strictness 10) and Steinberg's
 VST3 validator on the bundles, downloading (checked against their SHA-256) or building each
@@ -230,7 +232,7 @@ the circuit lab.
 | `docs/circuit/` | How the model was derived, board by board, with its sources and assumptions |
 | `docs/decisions.md` | The release's decisions |
 | `docs/history.md` | The model's decisions, from its development as an instrument of a DAW |
-| `third_party/` | nih-plug (patched) and the URW Gothic font |
+| `third_party/` | nih-plug and baseview (both patched) and the URW Gothic font |
 | `scripts/` | Validating the bundles, making the installers (`package.sh`, `installer/`), the third-party notices, fetching the sources |
 | `xtask/` | Builds the bundles |
 
@@ -293,7 +295,8 @@ The service documents and datasheets the model was derived from are not included
 - The plug-in is built with [nih-plug](https://github.com/robbert-vdh/nih-plug), by Robbert
   van der Helm (ISC; its VST3 bindings GPL-3.0), patched as
   `third_party/nih-plug/PATCHES.md` describes. The editor uses
-  [baseview](https://github.com/RustAudio/baseview),
+  [baseview](https://github.com/RustAudio/baseview) (patched as
+  `third_party/baseview/PATCHES.md` describes),
   [softbuffer](https://github.com/rust-windowing/softbuffer) and
   [resvg](https://github.com/linebender/resvg).
 - The licences of everything built into the plug-ins are in

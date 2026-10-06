@@ -1364,3 +1364,95 @@ target; CI's `--all-features` on MSVC not run here); `cargo fmt --all -- --check
 `scripts/notices.py --check`. Not tried: Sonar, the reporter's DAW, the CLAP in a host (the
 same editor), macOS and Linux (whose code is unchanged: `src/macos/window.rs` only as rustfmt
 orders it).
+
+## R28. Windows: the editor shown again when Windows repaints its window
+**Seen, 2026-10-06,** while the update check was tried (R27) in REAPER 7.82 on Windows 11 (a
+screen at 200 %): with 0.1.0's released VST3 in a floating FX window, the editor's area on the
+screen had 872 distinct colours (64 by 64 samples); right after `PrintWindow(FX window,
+PW_RENDERFULLCONTENT)` it had 2, and still 2 three seconds later, the panel gone for RGB 240,
+240, 240. A test build of the update check's branch did the same.
+
+**The cause.** The editor shows a frame only when it has changed (R5), and on Linux again
+every 250 ms (R19, which took macOS and Windows to keep a window's pixels). Windows does not
+always: whatever invalidates a window (a host repainting its own, a capture with
+`PrintWindow`, some remote-desktop and capture tools) has Windows ask for it to be painted
+(`WM_PAINT`), and a parent window without `WS_CLIPCHILDREN`, as a dialog may be, paints its
+background over its children first. baseview left `WM_PAINT` to `DefWindowProcW`, which
+validates the window without drawing, and told the editor nothing; the editor's window
+class has no background of its own, so what showed was the parent's. 240, 240, 240 is a
+dialog's (`COLOR_BTNFACE`). In a test host whose window is such a dialog, the editor's
+window was left that one colour when the host's window was repainted with its children, and
+when the host's window was captured with `PrintWindow`, 1.1 s later still; repainting the
+editor's window alone changed nothing (no background to paint). In REAPER the editor's
+window is in REAPER's `reaperPluginHostWrapProc`, in a dialog in the FX window's dialog
+(`#32770`): none of the three has `WS_CLIPCHILDREN`.
+
+**Agent decisions, 2026-10-06** (the owner asked for the fix and its test; not separately
+approved otherwise):
+- **baseview tells the handler,** a second patch in `third_party/baseview` (PATCHES.md):
+  `WM_PAINT` gives the handler a new event, `WindowEvent::Damaged`, as R26 gives any event
+  (queued while the handler is busy, given once its call returns, never a second borrow from
+  within the window procedure), and `DefWindowProcW` then validates what the handler has not
+  drawn, or Windows would ask again ahead of every frame's timer. Upstream's rewritten master
+  does the same since [baseview#344](https://github.com/RustAudio/baseview/pull/344)
+  (2026-10-04): it tells its handler of the damage and draws within `WM_PAINT`; its
+  interface is not this revision's (R26).
+- **The editor shows its last frame again at once** on that event: a copy, nothing rendered
+  (as R19's on Linux), only when Windows asks; no frame more otherwise. Not before a first
+  frame since the window opened or resized (that frame is due anyway). softbuffer validates
+  the window as it presents, so Windows does not ask again.
+- **Not at the next frame instead** (the frame marked unshown, for `on_frame` to show): the
+  parent's background would show for up to a frame's 15 ms at each repaint.
+- **Linux and macOS unchanged.** baseview's X11 backend ignores `Expose`, so R19's repaint
+  stays; macOS keeps a window's pixels.
+- **The test,** in `windows_window_tests`: `the_panel_is_shown_again_as_windows_repaints_its_window`.
+  R26's host window could not show this: nothing is kept of what is drawn off the screen (a
+  window's pixels there are clipped away, so there is nothing to read), and it clips its
+  children from its painting. This test's host window is a dialog's (its class's background
+  `COLOR_BTNFACE`, no `WS_CLIPCHILDREN`), on the screen at its top left, but at an alpha of 1
+  in 255, at the bottom of the windows, letting the pointer through to whatever is under it
+  (`WS_EX_LAYERED`, `WS_EX_TRANSPARENT`), with no taskbar button and never activated, as
+  R26's. The editor's pixels are read with `GetPixel`, 64 by 64 (the window's own, whatever
+  covers it). The test checks that the host's window repainted alone covers the editor's
+  window here (one colour), that the panel's pixels are back, the same, within 100 ms of the
+  host's window repainted with its children (`RedrawWindow`, `RDW_INVALIDATE | RDW_ERASE |
+  RDW_UPDATENOW | RDW_ALLCHILDREN`) and of `PrintWindow(host's window,
+  PW_RENDERFULLCONTENT)`; and, with the drawer opened below the strip in a host that repaints
+  its windows from within the editor's request (a `WM_PAINT` reaching the editor while its
+  handler is busy), that the panel and the drawer are back after a repaint.
+
+**Evidence (2026-10-06, the Windows reference machine, the GNU toolchain as R24, a screen at
+200 %):** with the `WM_PAINT` event never given (baseview as before this record), the test
+failed 3 times in 3, the editor's window one colour after the host's was repainted, and
+`PrintWindow` on the host's window alone (a check of its own, run by hand) left 0xF0F0F0
+there, still 1.1 s later. With the patch, the panel's 632 colours (of 64 by 64 samples) came
+back each time, `PrintWindow` alone left them as they were (3 runs in 3), and a probe saw a
+`WM_PAINT` reach the editor while its handler was busy, as the drawer opened, with no abort.
+`windows_window_tests` 4 passed in each of 9 runs; the plug-in's tests
+(`cargo test -p ca72-plugin`) 102 passed, 0 failed (8 ignored, run by hand). Clippy with
+`-D warnings` on the workspace, all targets, with `--features ca72-plugin/standalone`;
+`cargo fmt --all -- --check` (on a copy of the tree outside the main checkout, which this one
+was nested in); `scripts/notices.py --check`.
+
+In REAPER 7.82, a copy of it with a resource folder of its own each run (`-cfgfile`), its
+first-run questions answered No (importing the license key it found on the clipboard,
+choosing an audio device), and a script putting the VST3 on a track, its FX window floating;
+then, as in the report, the editor sampled 64 by 64 (on the screen and from its own window),
+`PrintWindow(FX window, PW_RENDERFULLCONTENT)`, the editor sampled at once and 3 s later, then
+the same for `RedrawWindow(FX window, RDW_INVALIDATE | RDW_ERASE | RDW_UPDATENOW |
+RDW_ALLCHILDREN)`:
+- **0.1.0** (the installed VST3, as REAPER loaded it): 331 colours before; one, 240, 240, 240,
+  at once after the capture and 3 s later, and after the repaint (2 runs).
+- **This change,** built as the bundle is (`--profile bundle`) under a name and IDs of its own
+  (`CA-72 R28`, as R27's `CA-72 TEST`), the file it loaded checked: REAPER scans the standard
+  VST3 folders whatever its settings say, and took the installed 0.1.0, of the same name and
+  IDs, over a build of this change named as it is. 331 colours before and after both, 3 runs
+  in 3; in two, the screen where the editor is was the same image, byte for byte, before,
+  after the capture and after the repaint (in the third, REAPER's About window had come over
+  part of it on the screen; the editor's own pixels kept their 331 colours). `cargo xtask
+  bundle`, run in a worktree inside another checkout, builds the outer one (nih-plug's xtask
+  goes to the outermost folder with a `Cargo.lock`), so the build was `cargo build --profile
+  bundle` here.
+
+Not tried: another host, a remote-desktop session, CI's Windows runner (the new test needs
+the editor drawn on a desktop), macOS and Linux (whose code is unchanged).

@@ -114,6 +114,10 @@ pub enum WindowEvent {
     Focused,
     Unfocused,
     WillClose,
+    /// The window's pixels are to be drawn again: something may have painted over them (a
+    /// parent window repainting its background over its children, a capture with
+    /// `PrintWindow`). Windows only, for each `WM_PAINT` (CA-72 patch).
+    Damaged,
 }
 
 #[derive(Debug, Clone)]

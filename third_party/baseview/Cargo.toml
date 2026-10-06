@@ -40,3 +40,8 @@ uuid = { version = "0.8", features = ["v4"] }
 
 [lints.clippy]
 missing-safety-doc = "allow"
+
+# Upstream's own warnings at this commit, with the Rust the CA-72 builds with (PATCHES.md).
+[lints.rust]
+non_snake_case = "allow"
+mismatched_lifetime_syntaxes = "allow"

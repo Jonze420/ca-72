@@ -19,7 +19,7 @@ use winapi::um::winuser::{
     XBUTTON1, XBUTTON2,
 };
 
-use std::cell::{Cell, Ref, RefCell, RefMut};
+use std::cell::{Cell, Ref, RefCell};
 use std::collections::VecDeque;
 use std::ffi::{c_void, OsStr};
 use std::os::windows::ffi::OsStrExt;
@@ -34,8 +34,8 @@ use raw_window_handle::{
 const BV_WINDOW_MUST_CLOSE: UINT = WM_USER + 1;
 
 use crate::{
-    Event, MouseButton, MouseCursor, MouseEvent, PhyPoint, PhySize, ScrollDelta, Size, WindowEvent,
-    WindowHandler, WindowInfo, WindowOpenOptions, WindowScalePolicy,
+    Event, EventStatus, MouseButton, MouseCursor, MouseEvent, PhyPoint, PhySize, ScrollDelta, Size,
+    WindowEvent, WindowHandler, WindowInfo, WindowOpenOptions, WindowScalePolicy,
 };
 
 use super::cursor::cursor_to_lpcwstr;
@@ -126,30 +126,37 @@ unsafe extern "system" fn wnd_proc(
         return 0;
     }
 
-    let window_state_ptr = GetWindowLongPtrW(hwnd, GWLP_USERDATA) as *mut WindowState;
+    let window_state_ptr = GetWindowLongPtrW(hwnd, GWLP_USERDATA) as *const WindowState;
     if !window_state_ptr.is_null() {
-        let result = wnd_proc_inner(hwnd, msg, wparam, lparam, &*window_state_ptr);
+        // A reference of this call's own, so that the state outlives it (CA-72 patch): a
+        // `WM_NCDESTROY` sent from within this call (`DestroyWindow` for `BV_WINDOW_MUST_CLOSE`,
+        // or a host destroying its window while the handler is busy) drops the window's
+        // reference below, and this call still reads the state, and may hold the handler's
+        // borrow, after it.
+        Rc::increment_strong_count(window_state_ptr);
+        let window_state = Rc::from_raw(window_state_ptr);
+
+        let result = wnd_proc_inner(hwnd, msg, wparam, lparam, &window_state);
 
         // If any of the above event handlers caused tasks to be pushed to the deferred tasks list,
-        // then we'll try to handle them now
-        loop {
-            // NOTE: This is written like this instead of using a `while let` loop to avoid exending
-            //       the borrow of `window_state.deferred_tasks` into the call of
-            //       `window_state.handle_deferred_task()` since that may also generate additional
-            //       messages.
-            let task = match (*window_state_ptr).deferred_tasks.borrow_mut().pop_front() {
-                Some(task) => task,
-                None => break,
-            };
-
-            (*window_state_ptr).handle_deferred_task(task);
+        // or events arrived while the handler was busy, then we'll try to handle them now. Not
+        // while the handler is busy, though: this message was then sent to the window from within
+        // one of its calls (the host resizing the window from `IPlugFrame::resizeView()`, a focus
+        // change, a modal loop), and a deferred resize run here would send a `WM_SIZE` to the busy
+        // handler. The call that is running drains them when it returns (CA-72 patch, PATCHES.md).
+        if !window_state.handler_busy() {
+            window_state.drain();
         }
 
         // NOTE: This is not handled in `wnd_proc_inner` because of the deferred task loop above
         if msg == WM_NCDESTROY {
             RevokeDragDrop(hwnd);
-            unregister_wnd_class((*window_state_ptr).window_class);
+            unregister_wnd_class(window_state.window_class);
             SetWindowLongPtrW(hwnd, GWLP_USERDATA, 0);
+            // Nothing more for a window that is gone (CA-72 patch).
+            window_state.pending_events.borrow_mut().clear();
+            window_state.deferred_tasks.borrow_mut().clear();
+            // The window's own reference; this call's goes as it returns.
             drop(Rc::from_raw(window_state_ptr));
         }
 
@@ -172,8 +179,9 @@ unsafe fn wnd_proc_inner(
         WM_MOUSEMOVE => {
             let mut window = crate::Window::new(window_state.create_window());
 
-            let mut mouse_was_outside_window = window_state.mouse_was_outside_window.borrow_mut();
-            if *mouse_was_outside_window {
+            // The flag is not kept borrowed across the handler's call (CA-72 patch).
+            let entered = window_state.mouse_was_outside_window.replace(false);
+            if entered {
                 // this makes Windows track whether the mouse leaves the window.
                 // When the mouse leaves it results in a `WM_MOUSELEAVE` event.
                 let mut track_mouse = TRACKMOUSEEVENT {
@@ -185,15 +193,9 @@ unsafe fn wnd_proc_inner(
                 // Couldn't find a good way to track whether the mouse enters,
                 // but if `WM_MOUSEMOVE` happens, the mouse must have entered.
                 TrackMouseEvent(&mut track_mouse);
-                *mouse_was_outside_window = false;
 
                 let enter_event = Event::Mouse(MouseEvent::CursorEntered);
-                window_state
-                    .handler
-                    .borrow_mut()
-                    .as_mut()
-                    .unwrap()
-                    .on_event(&mut window, enter_event);
+                window_state.handle_event(&mut window, enter_event);
             }
 
             let x = (lparam & 0xFFFF) as i16 as i32;
@@ -208,14 +210,14 @@ unsafe fn wnd_proc_inner(
                     .borrow()
                     .get_modifiers_from_mouse_wparam(wparam),
             });
-            window_state.handler.borrow_mut().as_mut().unwrap().on_event(&mut window, move_event);
+            window_state.handle_event(&mut window, move_event);
             Some(0)
         }
 
         WM_MOUSELEAVE => {
             let mut window = crate::Window::new(window_state.create_window());
             let event = Event::Mouse(MouseEvent::CursorLeft);
-            window_state.handler.borrow_mut().as_mut().unwrap().on_event(&mut window, event);
+            window_state.handle_event(&mut window, event);
 
             *window_state.mouse_was_outside_window.borrow_mut() = true;
             Some(0)
@@ -239,7 +241,7 @@ unsafe fn wnd_proc_inner(
                     .get_modifiers_from_mouse_wparam(wparam),
             });
 
-            window_state.handler.borrow_mut().as_mut().unwrap().on_event(&mut window, event);
+            window_state.handle_event(&mut window, event);
 
             Some(0)
         }
@@ -297,12 +299,7 @@ unsafe fn wnd_proc_inner(
 
                 window_state.mouse_button_counter.set(mouse_button_counter);
 
-                window_state
-                    .handler
-                    .borrow_mut()
-                    .as_mut()
-                    .unwrap()
-                    .on_event(&mut window, Event::Mouse(event));
+                window_state.handle_event(&mut window, Event::Mouse(event));
             }
 
             None
@@ -311,7 +308,7 @@ unsafe fn wnd_proc_inner(
             let mut window = crate::Window::new(window_state.create_window());
 
             if wparam == WIN_FRAME_TIMER {
-                window_state.handler.borrow_mut().as_mut().unwrap().on_frame(&mut window);
+                window_state.handle_frame(&mut window);
             }
 
             Some(0)
@@ -321,12 +318,7 @@ unsafe fn wnd_proc_inner(
             {
                 let mut window = crate::Window::new(window_state.create_window());
 
-                window_state
-                    .handler
-                    .borrow_mut()
-                    .as_mut()
-                    .unwrap()
-                    .on_event(&mut window, Event::Window(WindowEvent::WillClose));
+                window_state.handle_event(&mut window, Event::Window(WindowEvent::WillClose));
             }
 
             // DestroyWindow(hwnd);
@@ -341,12 +333,7 @@ unsafe fn wnd_proc_inner(
                 window_state.keyboard_state.borrow_mut().process_message(hwnd, msg, wparam, lparam);
 
             if let Some(event) = opt_event {
-                window_state
-                    .handler
-                    .borrow_mut()
-                    .as_mut()
-                    .unwrap()
-                    .on_event(&mut window, Event::Keyboard(event));
+                window_state.handle_event(&mut window, Event::Keyboard(event));
             }
 
             if msg != WM_SYSKEYDOWN {
@@ -376,12 +363,10 @@ unsafe fn wnd_proc_inner(
                 new_window_info
             };
 
+            // A `WM_SIZE` sent while the handler is busy (a host resizing the window from within
+            // `IPlugFrame::resizeView()`, which the handler called) reaches it once it returns.
             window_state
-                .handler
-                .borrow_mut()
-                .as_mut()
-                .unwrap()
-                .on_event(&mut window, Event::Window(WindowEvent::Resized(new_window_info)));
+                .handle_event(&mut window, Event::Window(WindowEvent::Resized(new_window_info)));
 
             None
         }
@@ -514,6 +499,14 @@ pub(super) struct WindowState {
     /// window state at the same time.
     pub deferred_tasks: RefCell<VecDeque<WindowTask>>,
 
+    /// Events that arrived while `handler` was busy, to be given to it in order once it returns
+    /// (CA-72 patch). A message can be sent to the window from within one of the handler's own
+    /// calls: a host may resize the window (`WM_SIZE`) from within `IPlugFrame::resizeView()`,
+    /// which a plug-in asks for from its event handler, and a modal loop dispatches the window's
+    /// messages. Borrowing `handler` again there panicked inside `wnd_proc`, which cannot unwind,
+    /// and so aborted the host's process.
+    pending_events: RefCell<VecDeque<Event>>,
+
     #[cfg(feature = "opengl")]
     pub gl_context: Option<GlContext>,
 }
@@ -531,8 +524,54 @@ impl WindowState {
         self.keyboard_state.borrow()
     }
 
-    pub(super) fn handler_mut(&self) -> RefMut<Option<Box<dyn WindowHandler>>> {
-        self.handler.borrow_mut()
+    /// Gives `event` to the handler, or if the handler is busy (this event was sent to the window
+    /// from within one of its calls), queues it for when that call returns: `None` then.
+    pub(super) fn handle_event(
+        &self, window: &mut crate::Window, event: Event,
+    ) -> Option<EventStatus> {
+        match self.handler.try_borrow_mut() {
+            Ok(mut handler) => handler.as_mut().map(|h| h.on_event(window, event)),
+            Err(_) => {
+                self.pending_events.borrow_mut().push_back(event);
+                None
+            }
+        }
+    }
+
+    /// A frame, unless the handler is busy (a modal loop run from within one of its calls): the
+    /// timer's next tick has the next one.
+    pub(super) fn handle_frame(&self, window: &mut crate::Window) {
+        if let Ok(mut handler) = self.handler.try_borrow_mut() {
+            if let Some(handler) = handler.as_mut() {
+                handler.on_frame(window);
+            }
+        }
+    }
+
+    /// Whether one of the handler's calls is running (this message was sent from within it).
+    pub(super) fn handler_busy(&self) -> bool {
+        self.handler.try_borrow_mut().is_err()
+    }
+
+    /// The events that waited for the handler, and the deferred tasks, in order, until none is
+    /// left (each may bring more). Only while the handler is not busy.
+    pub(super) fn drain(&self) {
+        loop {
+            // NOTE: Each queue's borrow ends before the event or task is handled, since that may
+            //       also generate additional messages.
+            let event = self.pending_events.borrow_mut().pop_front();
+            if let Some(event) = event {
+                let mut window = crate::Window::new(self.create_window());
+                self.handle_event(&mut window, event);
+                continue;
+            }
+
+            let task = self.deferred_tasks.borrow_mut().pop_front();
+            match task {
+                Some(task) => self.handle_deferred_task(task),
+                None => break,
+            }
+        }
     }
 
     /// Handle a deferred task as described in [`Self::deferred_tasks`].
@@ -565,6 +604,9 @@ impl WindowState {
                     )
                 };
             }
+            WindowTask::Focus => unsafe {
+                SetFocus(self.hwnd);
+            },
         }
     }
 }
@@ -576,6 +618,8 @@ pub(super) enum WindowTask {
     /// Resize the window to the given size. The size is in logical pixels. DPI scaling is applied
     /// automatically.
     Resize(Size),
+    /// Request keyboard focus for the window (upstream's #252, backported: CA-72 patch).
+    Focus,
 }
 
 pub struct Window<'a> {
@@ -715,6 +759,7 @@ impl Window<'_> {
                 dw_style: flags,
 
                 deferred_tasks: RefCell::new(VecDeque::with_capacity(4)),
+                pending_events: RefCell::new(VecDeque::new()),
 
                 #[cfg(feature = "opengl")]
                 gl_context,
@@ -800,9 +845,9 @@ impl Window<'_> {
     }
 
     pub fn focus(&mut self) {
-        unsafe {
-            SetFocus(self.state.hwnd);
-        }
+        // To avoid reentrant event handler calls we'll defer the actual focus request until after
+        // the event has been handled (upstream's #252, backported: CA-72 patch)
+        self.state.deferred_tasks.borrow_mut().push_back(WindowTask::Focus);
     }
 
     pub fn resize(&mut self, size: Size) {

@@ -1293,3 +1293,74 @@ on licensing and provenance, checked against the code. Nothing blocked; these we
   Homebrew must have. R17's "some 190 crates" was too many: the notices list 159.
 - **0.1.0 rebuilt.** The notices are inside every installer, so 0.1.0's three installers were
   built again from the corrected tree, and the tag v0.1.0, not yet public, moved to it.
+
+## R26. Windows: the host no longer aborts as the presets' drawer opens
+**The report, 2026-10-05.** A developer tried the VST3 on Windows 11 in Sonar and in a DAW of
+their own: it loaded, but opening the presets' drawer ended the host. Their recording, in Sonar:
+the window grows for the drawer, the new part stays white, and some 7 s later Sonar is gone,
+with no dialog.
+
+**The cause,** found on the Windows reference machine with 0.1.0's released VST3 (its
+installer checked against `SHA256SUMS.txt`) in a test host written for it, which answers
+`IPlugFrame::resizeView` in several ways. baseview borrows the editor's window handler (a
+`RefCell`) for each event; a `WM_SIZE` that reached the window while the handler was still
+handling the press borrowed it again: a panic inside the window procedure, which cannot
+unwind, so the process aborted (exception 0xC0000409, fail fast; Windows Error Reporting
+names `CA-72.vst3`). Two ways led there:
+- **The drawer taking the keyboard.** The press asked the host to grow the window and baseview
+  to follow (a deferred task); `take_keys` then called baseview's `focus()`, `SetFocus`, whose
+  focus messages reached the window from within the handler, and baseview ran its deferred
+  tasks for them: the resize, and so the `WM_SIZE`. Only where the editor's window did not
+  already have the keyboard: REAPER 7.82 gives a plug-in's window the keyboard as it is
+  clicked, and its drawer opened and shut normally (with real clicks, three launches).
+- **A host resizing the editor's window from within `resizeView`.** Then the `WM_SIZE` came
+  from the host, whatever had the keyboard. The grip, which asks from the editor's frame, did
+  the same in such a host.
+
+The test host aborted 3 times in 3 for each host behaviour that agrees to the resize (five
+behaviours, with and without the processing active, posted and real clicks), and never where
+the host refused it (the drawer then opens over the panel). Which way Sonar takes was not
+seen (it needs an account the owner does not have); the symptoms and the second DAW fit
+either. The same panic was fixed upstream for `focus()` alone
+([baseview#252](https://github.com/RustAudio/baseview/pull/252), 2026-05-25), after the
+revision the editor took.
+
+**Agent decisions, 2026-10-05** (the owner approved making the fix and asked that both ways
+work; not separately approved otherwise):
+- **baseview vendored and patched** in `third_party/baseview`, at the commit the editor took
+  from git, as nih-plug is (`third_party/baseview/PATCHES.md`): an event that arrives while
+  the handler is busy waits and is given to it once its call returns, the deferred tasks run
+  only then, and `focus()` is deferred (#252). Not upstream's master: its Windows backend and
+  handler interface were rewritten, a port of the editor. Not #252 alone: it leaves the second
+  way (the tests below abort with it alone). A review of the patch (a second agent) found that
+  closing the window freed its state while baseview's window procedure still read it (as
+  upstream did); each call of it now keeps the state until it returns.
+- **Tests in a real window** (Windows only, `editor.rs`, `windows_window_tests`): the editor's
+  window in a window of the test's, off the screen, in a host that grows its own window, or
+  resizes the editor's as well from within the request: the drawer opens below the strip and
+  shuts, and the grip resizes. They aborted the test process before the patch. The test's
+  window has no taskbar button and is not brought to the front, and the tests count in pixels
+  whatever the screen's scale (each thread per-monitor aware). The editor's window now takes its
+  presets' library from its caller, so that these tests read an empty folder of theirs rather
+  than the user's.
+- **The git sources.** baseview at 9a0b42c is no longer taken from git, so
+  `CA-72-<version>-git-sources.tar.gz` leaves it out (it is in this repository);
+  nih-plug's standalone still takes baseview at 579130e from git. The notices name its
+  repository.
+
+**Evidence (2026-10-05, the Windows reference machine, the GNU toolchain as R24, a screen
+at 200 %):** the bundle as it ships (`--profile bundle`) in the test host: the drawer opened
+under nine conditions, and opened, took the keyboard, shut and reopened under seven host
+behaviours; the grip resized under three (0.1.0 aborted under two of them); the editor
+opened, closed and opened again; no abort, panic or error report in any. Before the review's
+changes the patch had passed the same, the drawer runs 3 times in 3 each. In REAPER 7.82 (the
+bundle loaded from its own folder) the drawer opened below the strip with real clicks, three
+launches. `windows_window_tests` 3 passed; each aborted with baseview's Windows files as
+upstream had them, and the two where the host resizes the editor's window aborted with #252's
+change alone. `cargo test --workspace`: 217 passed, 0 failed (22 ignored, run by hand).
+Clippy with `-D warnings` on the workspace, all targets, with
+`--features ca72-plugin/standalone` (`assert_process_allocs` does not build for the GNU
+target; CI's `--all-features` on MSVC not run here); `cargo fmt --all -- --check`;
+`scripts/notices.py --check`. Not tried: Sonar, the reporter's DAW, the CLAP in a host (the
+same editor), macOS and Linux (whose code is unchanged: `src/macos/window.rs` only as rustfmt
+orders it).

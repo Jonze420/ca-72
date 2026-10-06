@@ -94,16 +94,29 @@ impl DropTarget {
         unsafe {
             let mut window = crate::Window::new(window_state.create_window());
 
+            // A drag that finds the handler busy (a call into it under way on this thread) is
+            // refused and the event dropped: one given to it later would contradict the effect
+            // reported to the drag's source now (CA-72 patch).
+            if window_state.handler_busy() {
+                if let Some(pdwEffect) = pdwEffect {
+                    *pdwEffect = DROPEFFECT_NONE;
+                }
+                return;
+            }
+
             let event = Event::Mouse(event);
-            let event_status =
-                window_state.handler_mut().as_mut().unwrap().on_event(&mut window, event);
+            let event_status = window_state.handle_event(&mut window, event);
+            // What the handler asked for meanwhile, as `wnd_proc` does after a message.
+            window_state.drain();
 
             if let Some(pdwEffect) = pdwEffect {
                 match event_status {
-                    EventStatus::AcceptDrop(DropEffect::Copy) => *pdwEffect = DROPEFFECT_COPY,
-                    EventStatus::AcceptDrop(DropEffect::Move) => *pdwEffect = DROPEFFECT_MOVE,
-                    EventStatus::AcceptDrop(DropEffect::Link) => *pdwEffect = DROPEFFECT_LINK,
-                    EventStatus::AcceptDrop(DropEffect::Scroll) => *pdwEffect = DROPEFFECT_SCROLL,
+                    Some(EventStatus::AcceptDrop(DropEffect::Copy)) => *pdwEffect = DROPEFFECT_COPY,
+                    Some(EventStatus::AcceptDrop(DropEffect::Move)) => *pdwEffect = DROPEFFECT_MOVE,
+                    Some(EventStatus::AcceptDrop(DropEffect::Link)) => *pdwEffect = DROPEFFECT_LINK,
+                    Some(EventStatus::AcceptDrop(DropEffect::Scroll)) => {
+                        *pdwEffect = DROPEFFECT_SCROLL
+                    }
                     _ => *pdwEffect = DROPEFFECT_NONE,
                 }
             }
